@@ -1,0 +1,59 @@
+{
+  "name": "world-memory-card",
+  "version": "0.1.2",
+  "type": "module",
+  "description": "把要它记住的几份 Markdown 裁成一页，每次交接先放进系统前缀——不必想起来，也一直在。",
+  "author": "xiaofentai",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xiaofentai/jingxi-coopanion-worlds.git",
+    "directory": "packages/memory-card"
+  },
+  "homepage": "https://github.com/xiaofentai/jingxi-coopanion-worlds/tree/main/packages/memory-card#readme",
+  "bugs": {
+    "url": "https://github.com/xiaofentai/jingxi-coopanion-worlds/issues"
+  },
+  "keywords": [
+    "world",
+    "memory",
+    "prefix",
+    "prompt"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "cortico": {
+    "kind": "world",
+    "api": 6,
+    "displayName": "Memory Card",
+    "tags": [
+      "memory"
+    ],
+    "locales": {
+      "zh": {
+        "displayName": "记忆卡",
+        "description": "记忆写在文件里，它却不会每次都翻。把要它记住的那几份裁成一页，交接前先放在眼前。只读，不写，不联网；留什么、留多少由你定。"
+      }
+    }
+  },
+  "files": [
+    "src",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

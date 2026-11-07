@@ -1,0 +1,63 @@
+{
+  "name": "coopanion-world-memory-backup",
+  "version": "0.5.2",
+  "type": "module",
+  "description": "Coopanion 的记忆备份:到点提醒 bot 整理 Memory,整理完把数据目录复制成一份带时间的备份,之后可按其中任意一份回滚记忆、插件与插件设置。只在 Windows + Coopanion 上验证过。",
+  "author": "xiaofentai",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xiaofentai/jingxi-coopanion-worlds.git",
+    "directory": "packages/memory-backup"
+  },
+  "homepage": "https://github.com/xiaofentai/jingxi-coopanion-worlds/tree/main/packages/memory-backup#readme",
+  "bugs": {
+    "url": "https://github.com/xiaofentai/jingxi-coopanion-worlds/issues"
+  },
+  "keywords": [
+    "cortico-world",
+    "cortico",
+    "memory",
+    "backup",
+    "snapshot"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "cortico": {
+    "kind": "world",
+    "api": 6,
+    "displayName": "Memory Backup",
+    "tags": [
+      "memory"
+    ],
+    "locales": {
+      "zh": {
+        "displayName": "记忆备份",
+        "description": "Coopanion 的记忆备份:到点提醒 bot 整理 Memory,整理完把数据目录复制成一份带时间的备份,之后可按其中任意一份回滚记忆、插件与插件设置。只在 Windows + Coopanion 上验证过。"
+      }
+    },
+    "describe": "describe.json"
+  },
+  "files": [
+    "src",
+    "describe.json",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

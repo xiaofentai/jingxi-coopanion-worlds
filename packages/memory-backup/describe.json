@@ -1,0 +1,148 @@
+{
+  "tools": [
+    {
+      "name": "mb_status",
+      "description": "Report when the next reminder is due, when the Memory was last tidied, when it was last copied, and the snapshots on disk. Reads only.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "description": "How many of the newest snapshots to list; 5 when left out."
+          }
+        }
+      },
+      "tags": [
+        "read",
+        "snapshot"
+      ],
+      "summary": {
+        "zh": "查看提醒排期、上次整理、上次备份与已有的备份。",
+        "en": "Reports the reminder schedule, the last tidy, the last snapshot and the snapshots on disk."
+      }
+    },
+    {
+      "name": "mb_run",
+      "description": "Copy the configured directory into a new dated snapshot now, without recording a Memory tidy. Returns the snapshot path, file count, size and how many older snapshots were deleted. The copy takes seconds to minutes and runs inside this call, so nothing written meanwhile lands in it.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "One line kept with this snapshot, for the person and for your own later reading."
+          }
+        }
+      },
+      "tags": [
+        "write",
+        "snapshot"
+      ],
+      "summary": {
+        "zh": "立刻把配置的目录复制成一份带时间的备份。",
+        "en": "Copies the configured directory into a dated snapshot now."
+      }
+    },
+    {
+      "name": "mb_tidy_done",
+      "description": "Record that you finished tidying the Memory, with what you changed, and copy the configured directory in the same call. Call it after rewriting, merging or deleting Memory files, not before.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "One or two sentences on what changed: what you merged, rewrote or deleted."
+          }
+        },
+        "required": [
+          "note"
+        ]
+      },
+      "tags": [
+        "write",
+        "snapshot"
+      ],
+      "summary": {
+        "zh": "记下整理完成,并在同一次调用里备份。",
+        "en": "Records that the Memory was tidied, and snapshots in the same call."
+      }
+    },
+    {
+      "name": "mb_restore",
+      "description": "Write a snapshot back over the Memory, the extension packages, their settings and their credentials. Without confirm: \"restore\" it only reports what the snapshot holds and what would be replaced, and changes nothing. With it, the state as it is now is snapshotted first, then the files are written; the running app keeps its loaded state until Core restarts, so tell the person. Memory is restored whole (files the snapshot does not hold are deleted, its Git history stays). Extensions come back with their dependencies under each package, with nothing deleted; each plugin's settings in config.json, its secrets in .env and its state under data/ come back too, except this World's own package, its own settings and its own state. The conversation store (data/runs), the session and usage logs (*.jsonl) and whatever an online plugin keeps on its server are outside this.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "snapshot": {
+            "type": "string",
+            "description": "A snapshot id from mb_status, or the absolute path of a snapshot folder."
+          },
+          "target": {
+            "type": "string",
+            "enum": [
+              "memory",
+              "extensions",
+              "both"
+            ],
+            "description": "What to write back; both when left out."
+          },
+          "confirm": {
+            "type": "string",
+            "description": "Exactly \"restore\" to carry it out. Leave it out for the preview; nothing is written then."
+          }
+        },
+        "required": [
+          "snapshot"
+        ]
+      },
+      "tags": [
+        "write"
+      ],
+      "summary": {
+        "zh": "把记忆与插件回滚到某一份备份;不带确认时只报告会改动什么。",
+        "en": "Writes a snapshot back over the Memory and the extensions; without confirm it only reports what would change."
+      }
+    },
+    {
+      "name": "mb_restart",
+      "description": "Restart Core so that restored files, and extensions installed or removed meanwhile, take effect. The pet disconnects for a few seconds and comes back. Only when the app runs under its supervisor, and only after asking the person.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "tags": [
+        "act"
+      ],
+      "summary": {
+        "zh": "重启 Core,让回滚与扩展装卸生效;桌宠会断开几秒。",
+        "en": "Restarts Core so restored files and extension changes take effect; the pet disconnects for a few seconds."
+      }
+    }
+  ],
+  "events": [
+    {
+      "type": "memory-backup.due",
+      "description": {
+        "zh": "到了整理记忆并备份的时间。",
+        "en": "The time to tidy the Memory and back it up came."
+      },
+      "trigger": "flush"
+    }
+  ],
+  "prompts": [
+    {
+      "key": "worlds.memory-backup.envPrompt",
+      "title": "记忆备份 · 环境提示",
+      "role": "envPrompt",
+      "content": "## 记忆备份\n\n你的记忆是工作区里的文本文件。整理由你用文件工具做;备份是把数据整份复制到别处。\n\n### 现状\n\n{{mb.summary}}\n\n{{mb.next}}\n\n### 提醒到点之后\n\n收到 `[记忆备份]` 事件:先读工作区再动手——合并重复的笔记、删掉过时的,`PARTNER.md` 保持精简,`CONSTITUTION.md` 只留长期成立的约定。整理是改文件本身,不是把文件挪个位置。\n\n改完调用 `mb_tidy_done`,note 写一两句这次改了什么;它记下这次整理,并在同一次调用里把{{mb.scope}}复制到 {{mb.location}} 下带时间的一份。复制期间你不写文件,备份里不会有写到一半的内容。回执挑对方关心的说一句就够。\n\n对方临时想要一份备份,或你想在整理前先留一份,用 `mb_run`。\n\n### 回滚\n\n对方说「回到上周那份」「把插件退回去」,先用 `mb_status` 找到那份备份,再调 `mb_restore`。不带 `confirm: \"restore\"` 时它只回预览:有哪些文件、会覆盖什么、记忆里多出来的文件会被删掉。把对方该知道的讲一句,得到明确同意后再带 confirm 调一次。\n\n回滚带回记忆、插件(连依赖)、插件设置与凭据;对话记录、日志和联机插件在服务器上的记录不动,别声称回了。会把本地状态上报的插件(生态箱这类)可能重报当时的数据,对方不想这样就用 `target: memory`。回滚前它会自动另存一份当前状态,后悔时用那份回滚回来。\n\n写完的文件要重启 Core 才生效:先问一句,同意再调 `mb_restart`(桌宠会断开几秒);对方不想现在重启,就说到扩展页点「重启进程」。\n\n换机器时 snapshot 给快照文件夹的绝对路径即可,它按那台机器的布局写入;设置、对话记录、工作区的 Git 历史不跟过来。\n\n一次唤醒里不要连着备份两次。失败时回执会写原因,照原样告诉对方。\n"
+    }
+  ]
+}
