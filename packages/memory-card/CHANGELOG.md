@@ -1,5 +1,9 @@
 # 记忆卡
 
+## 0.1.3
+
+- `keywords` 加上 `cortico-world`。扩展市场的定时扫描按这个关键词在 npm 搜索里发现新包，缺了它就不会被收录；代码与行为无变化。
+
 ## 0.1.2
 
 - 仓库迁到 `jingxi-coopanion-worlds`，`repository` 指向其中的 `packages/memory-card`。代码与行为无变化。

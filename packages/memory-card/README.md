@@ -93,7 +93,7 @@
 ```bash
 cd packages/world-memory-card
 corepack pnpm pack --pack-destination ../../build
-corepack pnpm add ../../build/world-memory-card-0.1.2.tgz
+corepack pnpm add ../../build/world-memory-card-0.1.3.tgz
 ```
 
 本地目录是链接安装，源码目录移动后链接会断。
