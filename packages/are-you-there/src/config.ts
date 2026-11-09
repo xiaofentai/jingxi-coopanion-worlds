@@ -14,15 +14,38 @@ export const DEFAULT_POLL_SECONDS = 15;
 export interface AreYouThereConfigSection extends WorldSection {
   /** 轮询间隔，秒。 */
   pollSeconds: number;
-  /** 确认锁屏后推事件。 */
+  /** 键盘鼠标空闲多少分钟算离开；0 表示不看这个信号。 */
+  idleMinutes: number;
+  /** 用锁屏判定。关掉后完全忽略锁屏，只靠键鼠动静。 */
+  checkLock: boolean;
+  /** 空闲到阈值时看一眼前台窗口，命中名单就不判离开。 */
+  checkForeground: boolean;
+  /** 前台判定用的关键词，逗号分隔，匹配进程名或窗口标题。 */
+  mediaKeywords: string;
+  /** 空闲到阈值时拍两帧比较，屏幕在变就不判离开。 */
+  checkScreen: boolean;
+  /** 判为离开后推事件。 */
   notifyAway: boolean;
-  /** 确认解锁后推事件。 */
+  /** 回到桌前之后推事件。 */
   notifyBack: boolean;
 }
+
+export const DEFAULT_IDLE_MINUTES = 10;
+export const MAX_IDLE_MINUTES = 1440;
+
+/** 默认认作「在看东西」的窗口关键词，都是视频与直播。 */
+export const DEFAULT_MEDIA_KEYWORDS =
+  'bilibili,哔哩哔哩,youtube,netflix,twitch,vlc,mpv,potplayer,mpc-hc,mpc-be,'
+  + '爱奇艺,腾讯视频,优酷,芒果tv,抖音,douyin,斗鱼,虎牙,plex,emby,jellyfin';
 
 export const ARE_YOU_THERE_DEFAULTS: AreYouThereConfigSection = {
   enabled: false,
   pollSeconds: DEFAULT_POLL_SECONDS,
+  idleMinutes: DEFAULT_IDLE_MINUTES,
+  checkLock: true,
+  checkForeground: true,
+  checkScreen: true,
+  mediaKeywords: DEFAULT_MEDIA_KEYWORDS,
   notifyAway: true,
   notifyBack: true,
 };
@@ -33,6 +56,15 @@ export function clampedPollSeconds(cfg: AreYouThereConfigSection): number {
     ? Math.round(cfg.pollSeconds)
     : DEFAULT_POLL_SECONDS;
   return Math.min(MAX_POLL_SECONDS, Math.max(MIN_POLL_SECONDS, raw));
+}
+
+/** 空闲阈值，毫秒；0 表示不看空闲。 */
+export function idleThresholdMs(cfg: AreYouThereConfigSection): number {
+  const raw = typeof cfg.idleMinutes === 'number' && Number.isFinite(cfg.idleMinutes)
+    ? Math.round(cfg.idleMinutes)
+    : DEFAULT_IDLE_MINUTES;
+  const minutes = Math.min(MAX_IDLE_MINUTES, Math.max(0, raw));
+  return minutes * 60_000;
 }
 
 /** 设置页。每个键都在用的时候读，所以改完不用重启。 */
@@ -54,6 +86,39 @@ export function areYouThereConfigGroup(language: Language = 'zh'): ConfigGroup {
           minimum: MIN_POLL_SECONDS,
           maximum: MAX_POLL_SECONDS,
           'x-suffix': c.pollSeconds.suffix,
+          'x-hot': true,
+        },
+        [`${K}.idleMinutes`]: {
+          type: 'integer',
+          title: c.idleMinutes.title,
+          description: c.idleMinutes.description,
+          minimum: 0,
+          maximum: MAX_IDLE_MINUTES,
+          'x-suffix': c.idleMinutes.suffix,
+          'x-hot': true,
+        },
+        [`${K}.checkLock`]: {
+          type: 'boolean',
+          title: c.checkLock.title,
+          description: c.checkLock.description,
+          'x-hot': true,
+        },
+        [`${K}.checkForeground`]: {
+          type: 'boolean',
+          title: c.checkForeground.title,
+          description: c.checkForeground.description,
+          'x-hot': true,
+        },
+        [`${K}.mediaKeywords`]: {
+          type: 'string',
+          title: c.mediaKeywords.title,
+          description: c.mediaKeywords.description,
+          'x-hot': true,
+        },
+        [`${K}.checkScreen`]: {
+          type: 'boolean',
+          title: c.checkScreen.title,
+          description: c.checkScreen.description,
           'x-hot': true,
         },
         [`${K}.notifyAway`]: {
