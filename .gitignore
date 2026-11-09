@@ -7,6 +7,7 @@ build/
 .DS_Store
 Thumbs.db
 
-# 本地工作笔记，不入库
+# 本地工作笔记与规则，不入库
 HANDOFF.md
 *.local.md
+.codebuddy/
