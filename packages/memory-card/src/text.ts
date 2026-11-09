@@ -41,10 +41,11 @@ const zh: MemoryCardText = {
     rule: {
       title: (n) => `规则 ${n}`,
       description:
-        '一条一份：路径|模式|参数|字数上限。模式：whole 整份；marker 取到某标题之前（参数是标题，如 ## 按需）；'
+        '一条一份：路径|模式|参数|字数上限|方向。模式：whole 整份；marker 取到某标题之前（参数是标题，如 ## 按需）；'
         + 'newest 取日期最新的几块（参数是块数）；newest+pin 再加固定块（参数写成 1,待办）。'
         + '字数上限可以留空，表示这一份不单独限制、只受总字数约束。'
-        + '例：记忆.md|whole||1500、偏好与习惯.md|marker|## 按需|',
+        + '方向可省：tail 断尾（留开头，默认）；head 截头（按换行留结尾，日记类文件用这个，不为凑上限整块丢）。'
+        + '例：记忆.md|whole||1500、超近期.md|whole||950|head',
       more: '同上。留空就跳过。',
     },
     extraRules: {
@@ -62,7 +63,7 @@ const zh: MemoryCardText = {
     },
     listMax: {
       title: '最多列几个',
-      description: '超出的只报数量。',
+      description: '没有载入的文件、「未上卡的块」各最多列几条；超出的只报数量。',
     },
     exclude: {
       title: '跳过的目录或文件',
@@ -73,7 +74,7 @@ const zh: MemoryCardText = {
     title: '记忆卡 · 环境提示',
     description: '这段把裁剪好的记忆放进系统前缀，并在每次交接时重建。',
     vars: {
-      'mc.meta': '读取了几份、多少字、生成时间，一行。',
+      'mc.meta': '读取了几份、多少字、几块未上卡、生成时间，一行。',
       'mc.card': '裁剪后的正文，带文件名与修改时间。',
       'mc.index': '没有载入的文件清单，每行「路径：首行」。',
     },
@@ -92,10 +93,11 @@ const en: MemoryCardText = {
     rule: {
       title: (n) => `Rule ${n}`,
       description:
-        'One rule per field: path|mode|argument|character limit. Modes: whole; marker (stops before a heading, argument is the '
-        + 'heading); newest (the newest dated blocks, argument is the count); newest+pin (also keeps a named block, argument as '
-        + '1,name). The character limit may be left empty: that file is then limited by the card total only. '
-        + 'Example: MEMORY.md|whole||1500, PREFERENCES.md|marker|## On demand|',
+        'One rule per field: path|mode|argument|character limit|side. Modes: whole; marker (stops before a heading, argument is '
+        + 'the heading); newest (the newest dated blocks, argument is the count); newest+pin (also keeps a named block, argument '
+        + 'as 1,name). The character limit may be left empty: that file is then limited by the card total only. '
+        + 'The side may be left out: tail keeps the beginning (default); head keeps the end, for a diary whose newest lines '
+        + 'are at the bottom. Example: MEMORY.md|whole||1500, RECENT.md|whole||950|head',
       more: 'Same as above. Empty fields are skipped.',
     },
     extraRules: {
@@ -113,7 +115,7 @@ const en: MemoryCardText = {
     },
     listMax: {
       title: 'List at most',
-      description: 'The rest are counted only.',
+      description: 'How many files left out and blocks not on the card to list; the rest are counted only.',
     },
     exclude: {
       title: 'Folders and files skipped',
@@ -124,7 +126,7 @@ const en: MemoryCardText = {
     title: 'Memory card: environment',
     description: 'This section puts the trimmed memory into the system prefix, rebuilt at every handoff.',
     vars: {
-      'mc.meta': 'How many files, how many characters, when it was built, on one line.',
+      'mc.meta': 'How many files, how many characters, how many blocks are not on the card, when it was built, on one line.',
       'mc.card': 'The trimmed text, with each file name and modification time.',
       'mc.index': 'The files left out, one line each as path: first line.',
     },

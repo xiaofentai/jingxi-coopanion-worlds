@@ -38,10 +38,19 @@ describe('rules', () => {
   it('parses one line per file and reports the lines it cannot read', () => {
     const { rules, errors } = parseRules('# 注释\nA.md|whole||100; B.md|newest|2; C.md|whole||');
     expect(rules).toEqual([
-      { path: 'A.md', mode: 'whole', arg: '', maxChars: 100 },
-      { path: 'C.md', mode: 'whole', arg: '', maxChars: 0 },
+      { path: 'A.md', mode: 'whole', arg: '', maxChars: 100, cut: 'tail' },
+      { path: 'C.md', mode: 'whole', arg: '', maxChars: 0, cut: 'tail' },
     ]);
     expect(errors).toEqual(['B.md|newest|2']);
+  });
+
+  it('reads an optional head or tail column and rejects anything else', () => {
+    const { rules, errors } = parseRules('A.md|whole||100|head; B.md|whole||100; C.md|whole||100|middle');
+    expect(rules).toEqual([
+      { path: 'A.md', mode: 'whole', arg: '', maxChars: 100, cut: 'head' },
+      { path: 'B.md', mode: 'whole', arg: '', maxChars: 100, cut: 'tail' },
+    ]);
+    expect(errors).toEqual(['C.md|whole||100|middle']);
   });
 
   it('rejects a path that leaves the folder', () => {
@@ -74,6 +83,7 @@ describe('whole and marker', () => {
     const dir = folder({ 'MEMORY.md': `# MEMORY\n\n${'字'.repeat(3000)}\n` });
     const result = buildCard(input(dir, 'MEMORY.md|whole||'));
     expect(result.card).not.toContain('已截断');
+    expect(result.card).not.toContain('未上卡的块');
     expect(result.loaded[0]!.kept).toBeGreaterThan(3000);
   });
 
@@ -82,6 +92,32 @@ describe('whole and marker', () => {
     const result = buildCard(input(dir, 'LONG.md|whole||40'));
     expect(result.card).toContain('（已截断：还有');
     expect(result.card).toContain('read_file 查看 LONG.md');
+  });
+
+  it('keeps the end of the file when the rule says head', () => {
+    const dir = folder({ 'LONG.md': `# LONG\n\n${'甲'.repeat(100)}${'乙'.repeat(100)}\n` });
+    const result = buildCard(input(dir, 'LONG.md|whole||40|head'));
+    expect(result.card).toContain('乙');
+    expect(result.card).not.toContain('甲');
+    expect(result.card).toContain('前面还有');
+  });
+
+  it('starts a head cut at a line break, not mid-line', () => {
+    const body = ['甲'.repeat(20), '乙'.repeat(20), '丙'.repeat(20), '丁'.repeat(20)].join('\n');
+    const dir = folder({ 'X.md': `# X\n\n## 11-06\n${body}\n` });
+    const result = buildCard(input(dir, 'X.md|whole||80|head'));
+    expect(result.card).toContain('乙');
+    expect(result.card).toContain('丙');
+    expect(result.card).toContain('丁');
+    expect(result.card).not.toContain('甲');
+    expect(result.card).toContain('这一段从「11-06」中间开始');
+  });
+
+  it('says nothing extra when the cut lands right before a block heading', () => {
+    const dir = folder({ 'X.md': `# X\n\n## 11-05\n${'甲'.repeat(100)}\n\n## 11-06\n${'乙'.repeat(100)}\n` });
+    const result = buildCard(input(dir, 'X.md|whole||120|head'));
+    expect(result.card).toContain('## 11-06');
+    expect(result.card).not.toContain('这一段从');
   });
 
   it('stops a marker file before the heading it names', () => {
@@ -124,12 +160,64 @@ describe('dated blocks', () => {
     expect(result.card).not.toContain('旧');
   });
 
+  it('keeps the end of the newest block when the rule says head', () => {
+    const dir = folder({ 'X.md': `# X\n\n## 11-06\n${'甲'.repeat(200)}${'乙'.repeat(200)}\n` });
+    const result = buildCard(input(dir, 'X.md|newest|1|150|head'));
+    expect(result.card).toContain('乙');
+    expect(result.card).not.toContain('甲');
+    expect(result.card).toContain('前面还有');
+  });
+
+  it('keeps the tail of an older block instead of dropping it whole', () => {
+    const old = Array.from({ length: 10 }, () => '甲'.repeat(20)).join('\n');
+    const fresh = Array.from({ length: 10 }, () => '乙'.repeat(20)).join('\n');
+    const dir = folder({ 'X.md': `# X\n\n## 11-05\n${old}\n\n## 11-06\n${fresh}\n` });
+    const result = buildCard(input(dir, 'X.md|newest|2|300|head'));
+    expect(result.card).toContain('甲');
+    expect(result.card).toContain('乙');
+    expect(result.card).toContain('这一段从「11-05」中间开始');
+    expect(result.card).not.toContain('未上卡的块');
+  });
+
   it('keeps the named block as well as the newest ones', () => {
     const dir = folder({ '日志.md': '# 日志\n\n## 11-02\n- 旧\n\n## 11-05\n- 新\n\n## 待办\n- 待办\n' });
     const result = buildCard(input(dir, '日志.md|newest+pin|1,待办|2000'));
     expect(result.card).toContain('新');
     expect(result.card).toContain('待办');
     expect(result.card).not.toContain('旧');
+    expect(result.card).toContain('### 未上卡的块');
+    expect(result.card).toContain('日志.md：11-02');
+  });
+
+  it('lists the blocks it did not carry, with their size', () => {
+    const dir = folder({ '日志.md': dated });
+    const result = buildCard(input(dir, '日志.md|newest|2|2000'));
+    expect(result.card).toContain('### 未上卡的块');
+    expect(result.card).toMatch(/- 日志\.md：11-03 \d+ 字/);
+    expect(result.card).toContain('先打开对应文件读一遍');
+    expect(result.meta).toContain('1 块未上卡');
+  });
+
+  it('names the block it drops to fit the limit', () => {
+    const dir = folder({ 'X.md': `# X\n\n## 11-05\n${'旧'.repeat(200)}\n\n## 11-06\n${'新'.repeat(200)}\n` });
+    const result = buildCard(input(dir, 'X.md|newest|2|300'));
+    expect(result.card).toContain('11-05');
+    expect(result.card).not.toContain('旧');
+    expect(result.meta).toContain('1 块未上卡');
+  });
+
+  it('caps the list and counts the rest', () => {
+    const dir = folder({ '日志.md': dated });
+    const result = buildCard(input(dir, '日志.md|newest|1|2000', { listMax: 1 }));
+    expect(result.card).toContain('另有 1 块没有列出');
+    expect(result.meta).toContain('2 块未上卡');
+  });
+
+  it('says nothing about missed blocks when every block is on the card', () => {
+    const dir = folder({ '日志.md': dated });
+    const result = buildCard(input(dir, '日志.md|newest|3|2000'));
+    expect(result.card).not.toContain('未上卡的块');
+    expect(result.meta).not.toContain('未上卡');
   });
 });
 

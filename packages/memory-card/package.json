@@ -1,6 +1,6 @@
 {
   "name": "world-memory-card",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "description": "把要它记住的几份 Markdown 裁成一页，每次交接先放进系统前缀——不必想起来，也一直在。",
   "author": "xiaofentai",
