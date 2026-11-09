@@ -1,6 +1,6 @@
 # world-memory-card
 
-本 README 对应 `src/index.ts` 导出的 World（`cortico.api = 6`，id `memory-card`）。
+显示名「记忆卡」。
 
 把一个目录里的 Markdown 按规则裁成一张卡，作为环境提示变量放进系统前缀。卡在每次交接重建前缀时重新生成，所以每个 session 开头看到的，都是那一刻磁盘上的样子。
 
@@ -74,7 +74,7 @@
 
 ### 模板
 
-`src/ENV_PROMPT.md` 与 `ENV_PROMPT.en.md` 是默认模板。装好后可以在控制台「提示词」页的 `worlds.memory-card.envPrompt` 里改，保存的版本会盖过包里的。
+默认模板随扩展一起装好。装好后可以在控制台「提示词」页的 `worlds.memory-card.envPrompt` 里改，保存的版本会盖过默认的。
 
 | 变量 | 内容 |
 |---|---|
@@ -86,41 +86,10 @@
 
 ## 安装
 
-在扩展页「手动安装 → 从 npm」里填 `world-memory-card`，装完重启进程。
+在扩展页「手动安装 → 从 npm」里填 `world-memory-card`，装完重启进程，再在 World 总览里打开「记忆卡」并填规则。
 
-开发时也可以从本机目录安装，或先打包再装：
+配置改完不需要重启，点「立即应用」或等下一次交接即可。
 
-```bash
-cd packages/world-memory-card
-corepack pnpm pack --pack-destination ../../build
-corepack pnpm add ../../build/world-memory-card-0.1.3.tgz
-```
+## 许可
 
-本地目录是链接安装，源码目录移动后链接会断。
-
-装完重启 Core，在 World 总览打开「记忆卡」，回提示词页填配置。配置改完不需要重启，点「立即应用」或等下一次交接即可。
-
-## 测试
-
-`src/card.ts` 只依赖 node 内置模块，可以脱离框架跑：
-
-```bash
-cd packages/world-memory-card
-corepack pnpm vitest run
-```
-
-`src/world.ts` 依赖 `cortico/*` 的类型与 `isLanguage`，要跑类型检查得先 `git submodule update --init` 并安装依赖。
-
-## 发布
-
-```bash
-cd packages/world-memory-card
-corepack pnpm pack --pack-destination ../../build
-npm publish ../../build/world-memory-card-<version>.tgz
-```
-
-发完在 `Pal-AI-Lab/cortico-extensions` 开一条 `[sync] world-memory-card`，扩展页的搜索与索引才会认到它。
-
-- 许可证是 AGPL-3.0-or-later，`LICENSE` 随包发出。
-- 扩展页里的工具/事件说明来自 `describe.json`；本世界没有工具和事件，因此不带。
-- 文案只有中文与英文两套，其余语言读英文模板。
+AGPL-3.0-or-later，见随包发出的 `LICENSE`。文案只有中文与英文两套，其余语言读英文模板。

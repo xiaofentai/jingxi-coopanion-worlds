@@ -96,7 +96,7 @@ describe('the reminder', () => {
     const text = pushed[0].render!();
     expect(text).toContain('该整理记忆了');
     expect(text).toContain('那时应用没开着');
-    expect(text).toContain(`记忆目录 ${join(botDir, 'workspace')}:2 个文件`);
+    expect(text).toContain(`记忆目录 ${join(botDir, 'workspace')}：2 个文件`);
     expect(text).toContain('mb_tidy_done');
     await world.stop();
   });
@@ -120,7 +120,7 @@ describe('the tools', () => {
     const outcome = await run('mb_tidy_done', { note: '合并了笔记' });
 
     expect(failed(outcome)).toBe(false);
-    expect(receiptText(outcome)).toContain('记下这次整理:合并了笔记');
+    expect(receiptText(outcome)).toContain('记下这次整理：合并了笔记');
     const snapshots = listSnapshots(backupDir);
     expect(snapshots).toHaveLength(1);
     expect(snapshots[0].note).toBe('合并了笔记');
@@ -140,9 +140,9 @@ describe('the tools', () => {
 
     const text = receiptText(await run('mb_status', { limit: 1 }));
 
-    expect(text).toContain('提醒:每隔 60 分钟');
-    expect(text).toContain('上次整理:还没有记录');
-    expect(text).toContain('磁盘上的备份:');
+    expect(text).toContain('提醒：每隔 60 分钟');
+    expect(text).toContain('上次整理：还没有记录');
+    expect(text).toContain('磁盘上的备份：');
     expect(text).toContain('整理前先留一份');
     expect(text).not.toContain('还没有备份');
   });
@@ -258,7 +258,7 @@ describe('a restore', () => {
     const outcome = await run('mb_restore', { snapshot: id, target: 'both', confirm: 'restore' });
 
     expect(failed(outcome)).toBe(false);
-    expect(receiptText(outcome)).toContain('设置:1 个插件回到当时的样子');
+    expect(receiptText(outcome)).toContain('设置：1 个插件回到当时的样子');
     const worlds = JSON.parse(readFileSync(config, 'utf8')).worlds;
     expect(worlds.terrarium).toEqual({ enabled: true, tickSec: 10 });
     expect(worlds.extra).toBeUndefined();
@@ -335,8 +335,8 @@ describe('the environment section', () => {
 
     const vars = world.envPromptVars() as Record<string, string>;
 
-    expect(vars['mb.summary']).toContain(`记忆目录 ${join(botDir, 'workspace')}:2 个文件`);
-    expect(vars['mb.next']).toMatch(/^下一次提醒:\d{2}-\d{2} \d{2}:\d{2}$/);
+    expect(vars['mb.summary']).toContain(`记忆目录 ${join(botDir, 'workspace')}：2 个文件`);
+    expect(vars['mb.next']).toMatch(/^下一次提醒：\d{2}-\d{2} \d{2}:\d{2}$/);
     expect(vars['mb.location']).toBe(backupDir);
     const doc = world.webUi!('zh').promptDocs![0];
     expect(doc.role).toBe('envPrompt');

@@ -1,8 +1,8 @@
 {
   "name": "coopanion-world-memory-backup",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "type": "module",
-  "description": "Coopanion 的记忆备份:到点提醒 bot 整理 Memory,整理完把数据目录复制成一份带时间的备份,之后可按其中任意一份回滚记忆、插件与插件设置。只在 Windows + Coopanion 上验证过。",
+  "description": "到点提醒 bot 整理记忆，整理完把数据目录复制成一份带时间的备份，之后可按其中任意一份回滚记忆、插件与插件设置。只在 Windows + Coopanion 上验证过。",
   "author": "xiaofentai",
   "license": "AGPL-3.0-or-later",
   "repository": {
@@ -38,7 +38,7 @@
     "locales": {
       "zh": {
         "displayName": "记忆备份",
-        "description": "Coopanion 的记忆备份:到点提醒 bot 整理 Memory,整理完把数据目录复制成一份带时间的备份,之后可按其中任意一份回滚记忆、插件与插件设置。只在 Windows + Coopanion 上验证过。"
+        "description": "到点提醒 bot 整理记忆，整理完把数据目录复制成一份带时间的备份，之后可按其中任意一份回滚记忆、插件与插件设置。只在 Windows + Coopanion 上验证过。"
       }
     },
     "describe": "describe.json"

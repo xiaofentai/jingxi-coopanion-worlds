@@ -6,6 +6,7 @@
 |---|---|---|
 | [`world-memory-card`](https://www.npmjs.com/package/world-memory-card) | [`packages/memory-card`](packages/memory-card) | 把目录里的 Markdown 裁成一页卡，每次交接放进系统前缀 |
 | [`coopanion-world-memory-backup`](https://www.npmjs.com/package/coopanion-world-memory-backup) | [`packages/memory-backup`](packages/memory-backup) | 到点提醒整理记忆，整理完备份数据目录，之后可按任意一份回滚 |
+| [`world-are-you-there`](https://www.npmjs.com/package/world-are-you-there) | [`packages/are-you-there`](packages/are-you-there) | 轮询屏幕锁没锁，把「人现在在不在桌前」写进环境提示 |
 
 ## 安装
 

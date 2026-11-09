@@ -1,0 +1,64 @@
+{
+  "name": "world-are-you-there",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "锁屏了就知道 ta 大概走了，解锁了就知道 ta 回来了——把这件事放进系统前缀。只在 Windows + Coopanion 上验证过。",
+  "author": "xiaofentai",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xiaofentai/jingxi-coopanion-worlds.git",
+    "directory": "packages/are-you-there"
+  },
+  "homepage": "https://github.com/xiaofentai/jingxi-coopanion-worlds/tree/main/packages/are-you-there#readme",
+  "bugs": {
+    "url": "https://github.com/xiaofentai/jingxi-coopanion-worlds/issues"
+  },
+  "keywords": [
+    "cortico-world",
+    "cortico",
+    "presence",
+    "lock-screen",
+    "windows"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "os": [
+    "win32"
+  ],
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "cortico": {
+    "kind": "world",
+    "api": 6,
+    "displayName": "Are you there",
+    "tags": [
+      "companion"
+    ],
+    "locales": {
+      "zh": {
+        "displayName": "在吗",
+        "description": "锁屏了就知道 ta 大概走了，解锁了就知道 ta 回来了。状态作为 here.state 与 here.lastAway 交给系统前缀，锁定与解锁各推一条事件；判定取自 Windows 的 LogonUI 进程。只在 Windows + Coopanion 上验证过。"
+      }
+    }
+  },
+  "files": [
+    "src",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "test:world": "vitest run --config vitest.world.config.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
