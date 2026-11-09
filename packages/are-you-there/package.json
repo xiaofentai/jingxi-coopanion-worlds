@@ -1,8 +1,8 @@
 {
   "name": "world-are-you-there",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
-  "description": "锁屏了就知道 ta 大概走了，解锁了就知道 ta 回来了——把这件事放进系统前缀。判定全在本机完成，只读屏幕锁、前台窗口名与两帧差分，画面不出内存。只在 Windows + Coopanion 上验证过。",
+  "description": "锁屏了就知道 ta 大概走开了，解锁了就知道 ta 回来了——把这件事放进系统前缀。判定全在本机完成，只读屏幕锁、前台窗口名与两帧差分，画面不出内存。只在 Windows + Coopanion 上验证过。",
   "author": "xiaofentai",
   "license": "AGPL-3.0-or-later",
   "repository": {
@@ -42,7 +42,7 @@
     "locales": {
       "zh": {
         "displayName": "在吗",
-        "description": "锁屏了就知道 ta 大概走了，解锁了就知道 ta 回来了。状态作为 here.state 与 here.lastAway 交给系统前缀，锁定与解锁各推一条事件；判定取自 Windows 的 LogonUI 进程、前台窗口名与两帧截图的像素差分。全部在本机计算：截图只在内存里比较，不落盘、不发出去，没有模型调用。只在 Windows + Coopanion 上验证过。"
+        "description": "锁屏了就知道 ta 大概走开了，解锁了就知道 ta 回来了。状态作为 here.state 与 here.lastAway 交给系统前缀，锁定与解锁各推一条事件；默认只看 Windows 的 LogonUI 进程与键鼠空闲，另有「前台窗口」「两帧截图差分」两项可选判定（默认关闭，会读屏幕）。全部在本机计算，没有模型调用。只在 Windows + Coopanion 上验证过。"
       }
     }
   },
