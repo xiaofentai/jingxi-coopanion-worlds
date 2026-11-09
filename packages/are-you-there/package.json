@@ -1,6 +1,6 @@
 {
   "name": "world-are-you-there",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "type": "module",
   "description": "锁屏了就知道 ta 大概走开了，解锁了就知道 ta 回来了——把这件事放进系统前缀。判定全在本机完成，只读屏幕锁、前台窗口名与两帧差分，画面不出内存。只在 Windows + Coopanion 上验证过。",
   "author": "xiaofentai",

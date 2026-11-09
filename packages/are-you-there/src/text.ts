@@ -110,7 +110,7 @@ const zh: AreYouThereText = {
     },
     notifyAway: {
       title: '判为离开时推事件',
-      description: '确认离开后推一条事件，让桌宠知道你走了。锁屏与空闲两种原因都会推；关掉后只能从环境提示里看出状态。',
+      description: '确认离开后推一条事件，让桌宠知道你走开了。锁屏与空闲两种原因都会推；关掉后只能从环境提示里看出状态。',
     },
     notifyBack: {
       title: '回来时推事件',
