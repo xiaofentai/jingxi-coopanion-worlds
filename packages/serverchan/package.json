@@ -1,0 +1,62 @@
+{
+  "name": "world-serverchan",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "把话送到 ta 的手机上：填一个 Server酱 SendKey，Turbo 与 Server酱³ 两种通道按 SendKey 的形状自动分辨，bot 只在真需要 ta 抬眼时推一条。",
+  "author": "xiaofentai",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xiaofentai/jingxi-coopanion-worlds.git",
+    "directory": "packages/serverchan"
+  },
+  "homepage": "https://github.com/xiaofentai/jingxi-coopanion-worlds/tree/main/packages/serverchan#readme",
+  "bugs": {
+    "url": "https://github.com/xiaofentai/jingxi-coopanion-worlds/issues"
+  },
+  "keywords": [
+    "cortico-world",
+    "cortico",
+    "serverchan",
+    "push",
+    "notification",
+    "phone"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "cortico": {
+    "kind": "world",
+    "api": 6,
+    "displayName": "Server Chan",
+    "tags": [
+      "internet",
+      "requires-key",
+      "im"
+    ],
+    "locales": {
+      "zh": {
+        "displayName": "Server酱",
+        "description": "把话送到 ta 的手机上。填一个 Server酱 SendKey，Turbo 与 Server酱³ 两种通道按 SendKey 的形状自动分辨，推送地址也各按各的拼法；bot 用 sc_send 发一条，标题 32 字以内，正文是 Markdown。只在 Coopanion 上验证过。"
+      }
+    }
+  },
+  "files": [
+    "src",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test tests/channel.test.ts tests/send.test.ts tests/env.test.ts tests/state.test.ts tests/world.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2"
+  }
+}
