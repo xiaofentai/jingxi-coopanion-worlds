@@ -16,6 +16,10 @@ export const MEMORY_LEDGER: WorldDefinition<MemoryLedgerConfigSection> = {
         zh: '体检：每份几块、日期到哪、哪一天缺、哪一天同时躺在两份文件里。只读。',
         en: 'Reports each file\'s blocks, date span, missing days and days that sit in two files. Read-only.',
       },
+      ml_recall: {
+        zh: '跨文件召回：给几条最相关的旧条目（最多 5），每条带来源。entity 精确、days 时间窗、query 自由文本。只给候选，要细节用 read_file。',
+        en: 'Recalls the few most relevant older entries across files (5 at most), each with its source. entity is exact, days is a window, query is free text. Candidates only; use read_file for the detail.',
+      },
       ml_add: {
         zh: '往某一天追加一条记忆；同类事以前发生过就用 again 写上那几个日期。first=true 插到块首，写「这一天的一句话」时用它。',
         en: 'Appends one entry to a day; when the same thing happened before, name those dates with again. first=true puts it at the front of the block, for the day\'s one line.',
@@ -31,6 +35,10 @@ export const MEMORY_LEDGER: WorldDefinition<MemoryLedgerConfigSection> = {
       ml_delete: {
         zh: '删掉某一块里的一条（含续行）；命中两条以上会拒绝。',
         en: 'Removes one entry from a block with its continuation lines; two matches are refused.',
+      },
+      ml_rename: {
+        zh: '改一个块的标题（只动标题行，条目一条不动）。ml_edit 碰不到标题，整理 games/* 时用它统一成「当狼 · 八人 · 11-05」这种形状。',
+        en: 'Renames a block heading (the heading line only; entries stay untouched). `ml_edit` cannot reach the heading, so this is how `games/*` headings get unified into e.g. "wolf · eight players · 11-05".',
       },
       ml_forget: {
         zh: '淘汰一条：移出这份文件，整条归档进归档文件，不再回来。名额满了换掉旧的一条时用。',

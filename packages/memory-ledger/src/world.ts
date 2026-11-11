@@ -84,7 +84,9 @@ export class MemoryLedgerWorld implements World {
       today: today(this.opts.timezone),
       language: textLanguage(this.language),
     });
-    return { 'ml.meta': result.meta, 'ml.card': result.card, 'ml.index': result.index, 'ml.policy': result.policy };
+    // 开口前召回是实验项：开关关着时这个变量是空串，模板里那一行自然消失
+    const hint = this.cfg.recallOnSpeak ? memoryLedgerText(textLanguage(this.language)).hintRecall : '';
+    return { 'ml.meta': result.meta, 'ml.card': result.card, 'ml.index': result.index, 'ml.policy': result.policy, 'ml.hint': hint };
   }
 
   /** 写入口：只碰块，不碰行；每次调用现读文件，所以配置改了不用重启。 */

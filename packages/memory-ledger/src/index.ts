@@ -17,6 +17,6 @@ export type { AuditReport, FileReport } from './audit.ts';
 export { createLedgerTools, LEDGER_TOOL_DECLS } from './tools.ts';
 export type { LedgerToolOptions } from './tools.ts';
 export {
-  appendBullets, appendRawLines, deleteInBlock, editInBlock, ensureDayBlock, ensureMonthBlock, findBlocks, fullDate, handleOf, moveBlock, tidy, weekday,
+  appendBullets, appendRawLines, deleteInBlock, editInBlock, ensureDayBlock, ensureMonthBlock, findBlocks, fullDate, handleOf, moveBlock, renameInBlock, tidy, weekday,
 } from './write.ts';
 export type { MoveResult } from './write.ts';

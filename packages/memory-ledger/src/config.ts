@@ -35,6 +35,11 @@ export interface MemoryLedgerConfigSection extends WorldSection {
   todayFile: string;
   /** `ml_forget` 的默认归档文件；空表示 `DEFAULT_ARCHIVE_FILE`。 */
   archiveFile: string;
+  /**
+   * 开口前召回：开的时候前缀里会多一句「打算开口先 ml_recall」。
+   * 默认关——它是用来测「她会不会真的在开口前查」的，不是常态。
+   */
+  recallOnSpeak: boolean;
   /** 一条规则，`路径|模式|参数|字数上限|方向`。设置页是单行输入，所以一条一行。 */
   rule1: string;
   rule2: string;
@@ -55,6 +60,7 @@ export const MEMORY_LEDGER_DEFAULTS: MemoryLedgerConfigSection = {
   folder: 'workspace',
   todayFile: DEFAULT_TODAY_FILE,
   archiveFile: DEFAULT_ARCHIVE_FILE,
+  recallOnSpeak: false,
   rule1: '',
   rule2: '',
   rule3: '',
@@ -115,6 +121,12 @@ export function memoryLedgerConfigGroup(language: Language = 'zh'): ConfigGroup 
           title: c.archiveFile.title,
           description: c.archiveFile.description,
           'x-path': { kind: 'file', extensions: ['.md'] },
+          'x-hot': true,
+        },
+        [`${K}.recallOnSpeak`]: {
+          type: 'boolean',
+          title: c.recallOnSpeak.title,
+          description: c.recallOnSpeak.description,
           'x-hot': true,
         },
         [`${K}.rule1`]: rule(1),

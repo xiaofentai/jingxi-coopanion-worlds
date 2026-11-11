@@ -6,6 +6,8 @@ What follows was read from disk again when the prefix was built; it is not what 
 
 {{ml.policy}}
 
+{{ml.hint}}
+
 {{ml.card}}
 
 {{ml.index}}
@@ -25,6 +27,7 @@ Change these files through the tools, **not with `write_file` / `append_file` / 
 - Add an entry → `ml_add`. When the same thing happened before, name those dates with `again`.
 - Write "the one line for this day" → `ml_add(..., first=true)`, which puts it at the very front of the block instead of the end. The first line of every dated block is that day's one line: 40 characters at most, the day's through-line (not the first line of the log, and not starting with a clock time like `13:00`). Details go below it. **This line is the entry that will later move into `大事记`**, so it has to stand on its own.
 - Change one sentence → `ml_edit(file, block, old, new)`. Copy `old` exactly; it must appear once in that block. To turn one entry into two, put a line break in `new`. The file's head (the lines before the first `##`, which belong to no block) is `block="文件头"`.
+- Change a **block heading** → `ml_rename(file, block, new)`. `ml_edit` only touches the body, so the heading line is out of its reach — hence this tool. When tidying `games/*`, make the headings uniform, e.g. `## 当狼 · 八人 · 11-05`; that heading is what later lookups by role or player count rely on. A day block may only have its weekday changed (use `ml_move` to change the date); a month block's heading cannot change.
 - Remove one entry → `ml_delete(file, block, old)`. A fragment of the entry is enough; two matches are refused.
 - Retire an entry (not the same as removing) → `ml_forget(file, block, old)`: it leaves this file, moves to the archive whole, and **never comes back**. Use it when `大事记` is over its entry cap and a new entry must replace an old one; if the new entry matters less, `ml_add(file="archive/大事记-归档.md")` instead and leave 大事记 untouched.
 - Over the cap is not an emergency: the receipt tells you by how much. **If you have no time now, `alarm_set` in 30 minutes**, but never skip recording something just because "I will tidy later".

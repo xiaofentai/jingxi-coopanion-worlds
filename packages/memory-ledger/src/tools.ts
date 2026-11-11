@@ -12,8 +12,9 @@ import type { ToolDef } from 'cortico/core/types.ts';
 import { audit, auditLines, folderOf, readDoc, readRuleDocs } from './audit.ts';
 import { parseRules } from './board.ts';
 import { DEFAULT_ARCHIVE_FILE, DEFAULT_TODAY_FILE } from './config.ts';
+import { recall, type RecallHit } from './recall.ts';
 import { parseDoc, type Doc } from './parse.ts';
-import { appendBullets, appendRawLines, deleteInBlock, editInBlock, ensureDayBlock, ensureMonthBlock, findBlocks, handleOf, moveBlock, regionsOf } from './write.ts';
+import { appendBullets, appendRawLines, deleteInBlock, editInBlock, ensureDayBlock, ensureMonthBlock, findBlocks, handleOf, moveBlock, regionsOf, renameInBlock } from './write.ts';
 
 /** 一条记忆最多这么长；超了说明该拆成两条，而不是让它继续长。 */
 const TEXT_MAX = 600;
@@ -108,6 +109,48 @@ function entryCapOf(rules: string, rel: string): number {
   return 0;
 }
 
+/** 收窄成一行，回执里不贴长条目。 */
+function clip(text: string, max: number): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length > max ? `${flat.slice(0, max)}…` : flat;
+}
+
+/** 一条候选写成回执里的一行：带来源，否则她判断不了相关性。 */
+function hitLine(hit: RecallHit): string {
+  return `- ${hit.handle}（${hit.file.replace(/\.md$/, '')}）${clip(hit.text, 50)}`;
+}
+
+/** 规则里的文件当成召回范围；归档不在规则里，也就不在召回范围里。 */
+function recallDocs(opts: LedgerToolOptions) {
+  const year = Number(opts.today().slice(0, 4));
+  return readRuleDocs(opts.folder(), opts.rules(), year).map(({ doc }) => doc);
+}
+
+/**
+ * 召回：跨文件挑出最相关的几条。
+ *
+ * 它比 `read_file` 多的只有两件——**跨文件**和**排序**。所以每条都带来源，
+ * 她照着来源去 `read_file` 取全文；找不到相关的就明说「大概是新的」，别硬凑。
+ */
+function recallTool(args: Args, opts: LedgerToolOptions): string {
+  const docs = recallDocs(opts);
+  const daysRaw = args.days;
+  const days = typeof daysRaw === 'number' && Number.isFinite(daysRaw) ? Math.max(0, Math.trunc(daysRaw)) : 0;
+  const hits = recall(docs, {
+    query: str(args, 'query'),
+    entity: str(args, 'entity'),
+    days,
+    today: opts.today(),
+    limit: 5,
+  });
+  if (!hits.length) return '（没有找到相关的旧条目——这件事大概是新的。）';
+  return [
+    `${hits.length} 条（最多 5）：`,
+    ...hits.map(hitLine),
+    '（要细节就 read_file 看对应文件里那一块；这里只是给候选。）',
+  ].join('\n');
+}
+
 /** 体检：每份几块、日期到哪、缺哪天。 */
 function check(opts: LedgerToolOptions): string {
   const today = opts.today();
@@ -200,6 +243,18 @@ function add(args: Args, opts: LedgerToolOptions): string {
     const unknown = again.filter((piece) => ![...known].some((id) => id.endsWith(piece)));
     if (unknown.length) lines.push(`（注意：${unknown.join('、')} 在现有文件里找不到对应的块）`);
   }
+
+  // 写入时算关联：她本来就在做事，插件只把候选递到眼前，她做选择题
+  const related = recall(recallDocs(opts), {
+    query: text,
+    today,
+    limit: 3,
+    skip: (hit) => hit.text.trim() === line.trim(),
+  });
+  if (related.length) {
+    lines.push('可能相关（不一定要接上，只是提醒）：');
+    for (const hit of related) lines.push(hitLine(hit));
+  }
   lines.push(NO_COMMIT);
   return lines.join('\n');
 }
@@ -279,6 +334,37 @@ function edit(args: Args, opts: LedgerToolOptions): string {
   }
   save(file, result.text, opts.backupDir());
   return `已改 ${rel}「${block}」1 处，现在 ${after.text.length} 字\n${NO_COMMIT}`;
+}
+
+/** 改一个块的标题：只动标题那一行，条目一条不动。 */
+function rename(args: Args, opts: LedgerToolOptions): string {
+  const folder = opts.folder();
+  const year = Number(opts.today().slice(0, 4));
+  const rel = str(args, 'file') || todayFileOf(opts);
+  const file = fileOf(folder, rel);
+  if (!file) return `（路径不对：${rel}）`;
+  if (!existsSync(file) || !statSync(file).isFile()) return `（${rel} 不存在，没有动文件。）`;
+
+  const block = str(args, 'block');
+  if (!block) return '（要写清改哪一块（block）。）';
+
+  const before = parseDoc(readText(file), rel, year);
+  const hit = renameInBlock(before, block, str(args, 'new'));
+  if ('error' in hit) return miss(hit);
+
+  const after = parseDoc(hit.text, rel, year);
+  if (after.blocks.length !== before.blocks.length) return '（核对不通过：块数变了，没有写盘。）';
+  if (entriesCount(after) !== entriesCount(before)) return '（核对不通过：条目数变了，没有写盘。）';
+  const landed = after.blocks.find((item) => item.heading.trim() === hit.after);
+  if (!landed) return '（核对不通过：新标题没落盘，没有写盘。）';
+
+  save(file, hit.text, opts.backupDir());
+
+  return [
+    `已改标题：${hit.before}  →  ${hit.after}`,
+    `（以后用「${handleOf(landed)}」找它；块里 ${landed.entries.length} 条一条没动）`,
+    NO_COMMIT,
+  ].join('\n');
 }
 
 /** 删块里的一条。 */
@@ -364,6 +450,21 @@ export const LEDGER_TOOL_DECLS: ReadonlyArray<Omit<ToolDef, 'handler'>> = [
     parameters: { type: 'object', additionalProperties: false, properties: {}, required: [] },
   },
   {
+    name: 'ml_recall',
+    description: '跨文件召回：给几条最相关的旧条目（最多 5），每条带来源（哪天、哪份文件）。三档：`entity` 精确（人名 / 局号 / 项目名）、`days` 时间窗、`query` 自由文本。都不给就看最近 3 天和「还挂着」。它只给候选，要细节用 read_file。',
+    tags: ['read'],
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        entity: { type: 'string', description: '精确找的词：人名（鲸鲸）、局号（`80be9f6c`）、项目名（鼠妇、星邮）。' },
+        query: { type: 'string', description: '自由文本：把你想说的那句话原样放进来，它按字的重合找。' },
+        days: { type: 'integer', minimum: 0, maximum: 3650, description: '只要最近这么多天的（含今天）；不给就不限。' },
+      },
+      required: [],
+    },
+  },
+  {
     name: 'ml_add',
     description: '往某一天追加一条记忆。默认写今天的块、今天那份文件。一天里出过同类的事，用 again 把前几次的日期写上，例如 again=11-05,11-08；这一条会带上「（again: …）」。',
     tags: ['write'],
@@ -442,6 +543,21 @@ export const LEDGER_TOOL_DECLS: ReadonlyArray<Omit<ToolDef, 'handler'>> = [
       required: ['block', 'old'],
     },
   },
+  {
+    name: 'ml_rename',
+    description: '改一个块的标题（只动标题那一行，块里的条目一条不动）。整理旧记忆时用它把标题改成统一形状，例如 `## 当狼 · 八人 · 11-05`——以后按角色 / 人数取块就靠标题。`ml_edit` 改不到标题，所以有这个工具。',
+    tags: ['write'],
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        file: { type: 'string', description: '哪份文件，不写就是今天那份。' },
+        block: { type: 'string', description: '改哪一块：写它现在的句柄，如 `还挂着`、`当狼那份（11-05 六人局…）`、`11-10`。' },
+        new: { type: 'string', description: '新标题，`## ` 可写可不写。日块必须以原日期开头（换日期用 ml_move），月块必须原样，且不许和别的块重名。' },
+      },
+      required: ['block', 'new'],
+    },
+  },
 ];
 
 /** 把声明和实现绑起来。 */
@@ -451,11 +567,13 @@ export function createLedgerTools(opts: LedgerToolOptions): ToolDef[] {
     handler: (args: Args) => {
       try {
         if (decl.name === 'ml_check') return check(opts);
+        if (decl.name === 'ml_recall') return recallTool(args, opts);
         if (decl.name === 'ml_add') return add(args, opts);
         if (decl.name === 'ml_move') return move(args, opts);
         if (decl.name === 'ml_edit') return edit(args, opts);
         if (decl.name === 'ml_delete') return remove(args, opts);
         if (decl.name === 'ml_forget') return forget(args, opts);
+        if (decl.name === 'ml_rename') return rename(args, opts);
         return `（没有这个工具：${decl.name}）`;
       } catch (err) {
         return `（出错了：${err instanceof Error ? err.message : String(err)}）`;

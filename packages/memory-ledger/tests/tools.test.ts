@@ -158,6 +158,49 @@ test('ml_forget 找不到那条就不动盘', () => {
   });
 });
 
+test('ml_rename 只改标题那一行，块里的条目一条不动', () => {
+  sandbox((box) => {
+    const receipt = box.run('ml_rename', { block: '还挂着', new: '## 手头的事' });
+    assert.match(receipt, /已改标题：## 还挂着 {2}→ {2}## 手头的事/);
+    assert.match(receipt, /1 条一条没动/);
+    const after = box.read('超近期.md');
+    assert.match(after, /## 手头的事\n- 备份拷到不联网盘。/);
+    assert.ok(!after.includes('## 还挂着'));
+  });
+});
+
+test('ml_rename 不许和别的块重名', () => {
+  sandbox((box) => {
+    const receipt = box.run('ml_rename', { block: '还挂着', new: '11-09（周一）' });
+    assert.match(receipt, /已经有块叫「11-09（周一）」/);
+    assert.match(box.read('超近期.md'), /## 还挂着/);
+  });
+});
+
+test('ml_rename 不许改日块的日期，只许换括号里的星期', () => {
+  sandbox((box) => {
+    assert.match(box.run('ml_rename', { block: '11-10', new: '11-11（周三）' }), /日块的标题要以 11-10 开头/);
+    assert.match(box.run('ml_rename', { block: '11-10', new: '11-10（星期一）' }), /已改标题/);
+    assert.match(box.read('超近期.md'), /## 11-10（星期一）/);
+  });
+});
+
+test('ml_rename 不许改月块的标题（目录和覆盖都靠它）', () => {
+  sandbox((box) => {
+    const receipt = box.run('ml_rename', { file: '大事记.md', block: '2026-10', new: '2026-12' });
+    assert.match(receipt, /月块的标题只能是 2026-10/);
+    assert.match(box.read('大事记.md'), /## 2026-10/);
+  });
+});
+
+test('ml_rename 找不到块时不动盘', () => {
+  sandbox((box) => {
+    const receipt = box.run('ml_rename', { block: '压根没有这块', new: '随便什么' });
+    assert.match(receipt, /没找到「压根没有这块」/);
+    assert.match(box.read('超近期.md'), /## 还挂着/);
+  });
+});
+
 /** 大事记 的上限写在它自己的规则里：catalog 的第 4 段是条目数。 */
 const RULES_CAP = `${RULES}; 大事记.md|catalog||2`;
 

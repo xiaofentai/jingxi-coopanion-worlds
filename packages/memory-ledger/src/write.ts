@@ -298,6 +298,50 @@ export function editInBlock(doc: Doc, handle: string, old: string, next: string)
   return { text: tidy(merged.join('\n')) };
 }
 
+/**
+ * 改块标题：只动标题那一行，块里的条目一条不动。
+ *
+ * 为什么要有它：`ml_edit` 的替换范围是 `block.body`，**标题行改不到**；而 `games/*` 的块
+ * 标题就是将来的检索键（角色 / 人数 / 日期），每局新建时都该统一形状。没有这个工具，
+ * 她只能退回 `edit_file`——那条路不核对，还可能把块劈开。
+ *
+ * 两条硬护栏：日块 / 月块的标题是**格式化**的（目录与覆盖自检都读它），只许换括号里的
+ * 星期，不许换日期；标题同时是特殊块的句柄，**不许和别的块重名**，否则以后「匹配到 2 块」。
+ */
+export function renameInBlock(doc: Doc, handle: string, next: string): { text: string; before: string; after: string } | Miss {
+  if (!next.trim()) return { error: '要说清新标题（new）' };
+  if (next.includes('\n')) return { error: '标题只能一行' };
+  if (isFrontHandle(doc, handle)) return { error: '文件头没有标题可改' };
+
+  const heading = next.trim().replace(/^#+\s*/, '').trim();
+  if (!heading) return { error: '新标题是空的' };
+
+  const block = oneBlock(doc, handle);
+  if ('error' in block) return block;
+
+  const before = block.heading.trim();
+  const after = `## ${heading}`;
+  if (before === after) return { error: '新旧标题一样，没有动文件' };
+
+  if (block.kind === 'day') {
+    const dayPart = (block.date ?? '').slice(5);
+    if (!heading.startsWith(dayPart)) {
+      return { error: `日块的标题要以 ${dayPart} 开头（如 \`${dayPart}（周一）\`）；要换日期请用 ml_move` };
+    }
+  }
+  if (block.kind === 'month' && heading !== block.date) {
+    return { error: `月块的标题只能是 ${block.date}（目录和覆盖都靠它）` };
+  }
+  if (doc.blocks.some((other) => other !== block && other.title.trim() === heading)) {
+    return { error: `已经有块叫「${heading}」了，重名以后就分不清是哪一块` };
+  }
+
+  const lines = doc.text.split('\n');
+  const [start] = spanOf(block);
+  lines[start] = after;
+  return { text: tidy(lines.join('\n')), before, after };
+}
+
 /** 改文件头里的一处；唯一匹配的规矩与块内相同。 */
 export function editInFront(doc: Doc, old: string, next: string): { text: string } | Miss {
   const front = frontText(doc);
