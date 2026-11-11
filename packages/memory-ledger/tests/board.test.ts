@@ -1,0 +1,208 @@
+import { strict as assert } from 'node:assert';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { test } from 'node:test';
+import { buildBoard } from '../src/board.ts';
+
+/** 造一个临时目录，用完删掉。 */
+function withFolder(files: Record<string, string>, run: (folder: string) => void): void {
+  const folder = mkdtempSync(join(tmpdir(), 'memory-ledger-'));
+  try {
+    for (const [name, body] of Object.entries(files)) writeFileSync(join(folder, name), body, 'utf8');
+    run(folder);
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
+}
+
+function board(folder: string, rules: string, today: string, totalChars = 100_000) {
+  return buildBoard({
+    folder,
+    rules,
+    totalChars,
+    listOthers: false,
+    listMax: 8,
+    exclude: ['.git'],
+    stamp: '11-10 18:00',
+    today,
+    language: 'zh',
+  });
+}
+
+test('覆盖连续时没有缺口', () => {
+  const files = {
+    '超近期.md': '## 11-09\\n- a\\n\\n## 11-10\\n- b\\n'.replaceAll('\\n', '\n'),
+    '近期.md': '## 11-08\\n- c\\n'.replaceAll('\\n', '\n'),
+  };
+  withFolder(files, (folder) => {
+    const result = board(folder, '超近期.md|whole||4000; 近期.md|whole||4000', '2026-11-10');
+    assert.deepEqual(result.cover.missing, []);
+    assert.deepEqual(result.cover.duplicates, []);
+    assert.match(result.card, /记忆覆盖 11-08 ~ 11-10，没有缺口/);
+  });
+});
+
+test('缺的那天会被点名', () => {
+  const files = {
+    '超近期.md': '## 11-10\n- b\n'.replaceAll('\\n', '\n'),
+    '近期.md': '## 11-08\n- c\n'.replaceAll('\\n', '\n'),
+  };
+  withFolder(files, (folder) => {
+    const result = board(folder, '超近期.md|whole||4000; 近期.md|whole||4000', '2026-11-10');
+    assert.deepEqual(result.cover.missing, ['2026-11-09']);
+    assert.match(result.card, /缺 11-09/);
+    assert.match(result.meta, /缺 1 天/);
+  });
+});
+
+test('同一天出现在两份文件里会被点名（11-09 被劈开那种）', () => {
+  const files = {
+    '超近期.md': '## 11-09\n- 18:00 起\\n\n## 11-10\n- b\n'.replaceAll('\\n', '\n'),
+    '近期.md': '## 11-08\n- c\n\n## 11-09\n- 早上 10:04\n'.replaceAll('\\n', '\n'),
+  };
+  withFolder(files, (folder) => {
+    const result = board(folder, '超近期.md|whole||4000; 近期.md|whole||4000', '2026-11-10');
+    assert.equal(result.cover.duplicates.length, 1);
+    assert.equal(result.cover.duplicates[0].date, '2026-11-09');
+    assert.deepEqual(result.cover.duplicates[0].files, ['超近期.md', '近期.md']);
+    assert.match(result.card, /11-09 同时出现在 超近期\.md 与 近期\.md/);
+  });
+});
+
+test('文件停在昨天也算缺口', () => {
+  const files = { '超近期.md': '## 11-08\n- a\n'.replaceAll('\\n', '\n') };
+  withFolder(files, (folder) => {
+    const result = board(folder, '超近期.md|whole||4000', '2026-11-10');
+    assert.deepEqual(result.cover.missing, ['2026-11-09', '2026-11-10']);
+  });
+});
+
+test('tail 断尾：留开头，丢最新的结尾', () => {
+  const body = `## 11-08\n- ${'甲'.repeat(60)}\n\n## 11-09\n- ${'乙'.repeat(60)}\n`;
+  withFolder({ 'a.md': body }, (folder) => {
+    const result = board(folder, 'a.md|whole||80|tail', '2026-11-09');
+    assert.match(result.card, /甲/);
+    assert.doesNotMatch(result.card, /乙/);
+    assert.match(result.card, /已截断/);
+  });
+});
+
+test('head 截头：留结尾，截在块中间时补一行出处', () => {
+  const body = `## 11-08\n- ${'甲'.repeat(60)}\n\n## 11-09\n- ${'乙'.repeat(150)}\n`;
+  withFolder({ 'a.md': body }, (folder) => {
+    const result = board(folder, 'a.md|whole||100|head', '2026-11-09');
+    assert.match(result.card, /乙/);
+    assert.doesNotMatch(result.card, /甲/);
+    assert.match(result.card, /这一段从「11-09」中间开始/);
+  });
+});
+
+test('head 截头落在行首时，整块保住且不补出处那句', () => {
+  const body = `## 11-08\n- ${'甲'.repeat(60)}\n\n## 11-09\n- ${'乙'.repeat(10)}\n`;
+  withFolder({ 'a.md': body }, (folder) => {
+    const result = board(folder, 'a.md|whole||70|head', '2026-11-09');
+    assert.match(result.card, /## 11-09\n- 乙/);
+    assert.doesNotMatch(result.card, /中间开始/);
+  });
+});
+
+test('marker 取到某个标题之前', () => {
+  const body = '## 名字\n- 鲸汐\n\n## 按需\n- 环境路径\n';
+  withFolder({ 'a.md': body }, (folder) => {
+    const result = board(folder, 'a.md|marker|## 按需|4000', '2026-11-09');
+    assert.match(result.card, /鲸汐/);
+    assert.doesNotMatch(result.card, /环境路径/);
+  });
+});
+
+test('newest 只取最新两块，其余进未上卡清单', () => {
+  const body = '## 11-02\n- 旧\n\n## 11-08\n- 中\n\n## 11-10\n- 新\n';
+  withFolder({ 'a.md': body }, (folder) => {
+    const result = board(folder, 'a.md|newest|2|4000', '2026-11-10');
+    assert.match(result.card, /新/);
+    assert.match(result.card, /中/);
+    assert.doesNotMatch(result.card, /旧/);
+    assert.match(result.card, /未上卡的块/);
+    assert.match(result.card, /- a\.md：11-02 \d+ 字/);
+  });
+});
+
+test('规则写错只跳过那一行，不抛异常', () => {
+  withFolder({ 'a.md': '## 11-10\n- a\n'.replaceAll('\\n', '\n') }, (folder) => {
+    const result = board(folder, 'a.md|whole||600x; a.md|whole||2000', '2026-11-10');
+    assert.match(result.card, /规则写错了/);
+    assert.equal(result.loaded.length, 1);
+  });
+});
+
+test('目录读不到时给说明，不抛异常', () => {
+  const result = board(join(tmpdir(), 'no-such-folder-xyz'), 'a.md|whole||100', '2026-11-10');
+  assert.match(result.card, /目录读不到/);
+});
+
+const CAT = [
+  '# 超近期',
+  '',
+  '## 11-08（周六）',
+  '- 早上他打招呼，说 5:34 才睡。',
+  '- 细节一。',
+  '',
+  '## 11-09（周日）',
+  '- 两场 12 人局，写了 15k。',
+  '',
+  '## 还挂着',
+  '- 备份拷到不联网盘。',
+  '',
+].join('\n');
+
+test('catalog 每个块只出一行：短日期 + 首行，细节不进目录', () => {
+  withFolder({ '超近期.md': CAT }, (folder) => {
+    const result = board(folder, '超近期.md|catalog||600', '2026-11-09');
+    assert.match(result.card, /11-08 早上他打招呼，说 5:34 才睡。/);
+    assert.match(result.card, /11-09 两场 12 人局，写了 15k。/);
+    assert.match(result.card, /还挂着 备份拷到不联网盘。/);
+    assert.doesNotMatch(result.card, /细节一/);
+  });
+});
+
+test('catalog 一行超过参数就截断，不整段搬进来', () => {
+  withFolder({ 'a.md': `## 11-09\n- ${'长'.repeat(80)}\n` }, (folder) => {
+    const result = board(folder, 'a.md|catalog|10|600', '2026-11-09');
+    assert.match(result.card, /11-09 长{10}…/);
+  });
+});
+
+test('catalog 超预算：丢掉最旧的那几天，并且点名报出来（不许静默）', () => {
+  const body = [
+    '## 11-02', '- 一', '',
+    '## 11-03', '- 二', '',
+    '## 11-04', '- 三', '',
+    '## 11-05', '- 四', '',
+    '## 11-06', '- 五', '',
+  ].join('\n');
+  withFolder({ 'a.md': body }, (folder) => {
+    const result = board(folder, 'a.md|catalog||20', '2026-11-06');
+    // 留最新的
+    assert.match(result.card, /11-06 五/);
+    assert.doesNotMatch(result.card, /11-02 一/);
+    // 丢掉的天数要说出来，并且列进「未上卡的块」
+    assert.match(result.card, /更早的 \d+ 天没上卡/);
+    assert.match(result.card, /未上卡的块/);
+    assert.match(result.card, /- a\.md：11-02 \d+ 字/);
+  });
+});
+
+test('catalog 不让某一天变长就挤掉别天', () => {
+  const day = (text: string) => `## 11-09\n- ${text}\n`;
+  const short = `## 11-08\n- 甲\n\n${day('乙')}\n## 11-10\n- 丙\n`;
+  const long = `## 11-08\n- 甲\n\n${day('乙'.repeat(3000))}\n## 11-10\n- 丙\n`;
+  withFolder({ 'short.md': short, 'long.md': long }, (folder) => {
+    const a = board(folder, 'short.md|catalog||600', '2026-11-10');
+    const b = board(folder, 'long.md|catalog||600', '2026-11-10');
+    // 三天都在，判据是块数一样、字数几乎一样
+    assert.equal(a.loaded[0].blocks, 3);
+    assert.equal(b.loaded[0].blocks, 3);
+    assert.ok(Math.abs(a.loaded[0].kept - b.loaded[0].kept) < 120, `${a.loaded[0].kept} vs ${b.loaded[0].kept}`);
+  });
+});

@@ -1,0 +1,60 @@
+{
+  "name": "world-memory-ledger",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "把记忆文件裁成一页交给前缀，并在卡尾报出哪几天缺、哪天躺在两份文件里。只读，不写盘。",
+  "author": "xiaofentai",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xiaofentai/jingxi-coopanion-worlds.git",
+    "directory": "packages/memory-ledger"
+  },
+  "homepage": "https://github.com/xiaofentai/jingxi-coopanion-worlds/tree/main/packages/memory-ledger",
+  "bugs": {
+    "url": "https://github.com/xiaofentai/jingxi-coopanion-worlds/issues"
+  },
+  "keywords": [
+    "cortico-world",
+    "world",
+    "memory",
+    "prefix",
+    "prompt"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "cortico": {
+    "kind": "world",
+    "api": 6,
+    "displayName": "Memory Ledger",
+    "tags": [
+      "memory"
+    ],
+    "locales": {
+      "zh": {
+        "displayName": "记忆板",
+        "description": "把要它记住的那几份裁成一页，交接前先放在眼前；卡尾还会说清哪几天缺、哪天躺在两份文件里。只读，不写，不联网。"
+      }
+    }
+  },
+  "files": [
+    "src",
+    "ENV_PROMPT.md",
+    "ENV_PROMPT.en.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test tests/parse.test.ts tests/board.test.ts tests/write.test.ts tests/tools.test.ts tests/archive.test.ts",
+    "dump": "node scripts/dump.ts",
+    "check": "node scripts/check.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2"
+  }
+}
