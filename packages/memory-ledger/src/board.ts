@@ -84,9 +84,9 @@ const CATALOG_MAX_ROWS = 100;
 
 const TEXT = {
   zh: {
-    noFolder: '（记忆板是空的：没有配置目录。）',
-    badFolder: (dir: string) => `（记忆板：目录读不到 ${dir}。）`,
-    empty: '（记忆板是空的：规则为空，或目录里没有匹配的文件。）',
+    noFolder: '（记忆树网是空的：没有配置目录。）',
+    badFolder: (dir: string) => `（记忆树网：目录读不到 ${dir}。）`,
+    empty: '（记忆树网是空的：规则为空，或目录里没有匹配的文件。）',
     missing: (file: string) => `（${file} 不存在，跳过。）`,
     noMarker: (marker: string) => `（没找到「${marker}」，整份载入。）`,
     overLong: (file: string, chars: number, limit: number) =>
@@ -109,14 +109,14 @@ const TEXT = {
     coverRange: (from: string, to: string) => `记忆覆盖 ${from} ~ ${to}`,
     coverOk: '，没有缺口。',
     coverMissing: (days: string[]) => `，缺 ${days.join('、')}。`,
-    coverNone: '记忆板里没有任何带日期的块。',
+    coverNone: '记忆树网里没有任何带日期的块。',
     coverDup: (date: string, files: string[]) => `- ${date} 同时出现在 ${files.join(' 与 ')}：该只留在一处。`,
     coverDupTitle: '同一天出现在两份文件里：',
     othersTitle: '### 未载入的文件',
     othersNote: '问到相关的事，先打开对应文件再答。',
     othersOver: (n: number) => `- 另有 ${n} 个文件没有列出。`,
     over: (n: number) => `（还有 ${n} 份因总上限没有载入。）`,
-    error: (msg: string) => `（记忆板生成失败：${msg}）`,
+    error: (msg: string) => `（记忆树网生成失败：${msg}）`,
     meta: (files: number, chars: number, omitted: number, holes: number, due: number, long: number, stamp: string) => {
       const parts = [`读取 ${files} 份`, `${chars} 字`];
       if (omitted > 0) parts.push(`${omitted} 块未上卡`);
@@ -130,9 +130,9 @@ const TEXT = {
     untitled: '（没有标题）',
   },
   en: {
-    noFolder: '(The board is empty: no folder is configured.)',
-    badFolder: (dir: string) => `(Memory board: the folder cannot be read: ${dir}.)`,
-    empty: '(The board is empty: no rules, or nothing in the folder matches them.)',
+    noFolder: '(Memory Graph is empty: no folder is configured.)',
+    badFolder: (dir: string) => `(Memory Graph: the folder cannot be read: ${dir}.)`,
+    empty: '(Memory Graph is empty: no rules, or nothing in the folder matches them.)',
     missing: (file: string) => `(${file} is missing; skipped.)`,
     noMarker: (marker: string) => `("${marker}" not found; the whole file is loaded.)`,
     overLong: (file: string, chars: number, limit: number) =>
@@ -155,14 +155,14 @@ const TEXT = {
     coverRange: (from: string, to: string) => `Memory covers ${from} to ${to}`,
     coverOk: ', no gaps.',
     coverMissing: (days: string[]) => `, missing ${days.join(', ')}.`,
-    coverNone: 'No dated block is on the board.',
+    coverNone: 'No dated block is on the graph.',
     coverDup: (date: string, files: string[]) => `- ${date} is in both ${files.join(' and ')}: it belongs in one place.`,
     coverDupTitle: 'The same day appears in two files:',
     othersTitle: '### Files not loaded',
     othersNote: 'Open the file before answering anything about it.',
     othersOver: (n: number) => `- ${n} more files are not listed.`,
     over: (n: number) => `(${n} more files did not fit under the total limit.)`,
-    error: (msg: string) => `(Building the board failed: ${msg})`,
+    error: (msg: string) => `(Building the graph failed: ${msg})`,
     meta: (files: number, chars: number, omitted: number, holes: number, due: number, long: number, stamp: string) => {
       const parts = [`${files} files`, `${chars} characters`];
       if (omitted > 0) parts.push(`${omitted} blocks not on the board`);

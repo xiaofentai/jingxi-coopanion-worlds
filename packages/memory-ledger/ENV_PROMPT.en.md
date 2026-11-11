@@ -1,4 +1,4 @@
-## Memory board
+## Memory Graph
 
 What follows was read from disk again when the prefix was built; it is not what you are writing now, and it does not refresh in the middle of a session. Each section starts with its file and that file's modification time. Files in the listing are not on the board: open them before answering anything about them.
 

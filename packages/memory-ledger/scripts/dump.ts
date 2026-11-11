@@ -1,5 +1,5 @@
 /**
- * 本地对比：拿同一批文件，各出一页——记忆卡（memory-card）与记忆板（memory-ledger）。
+ * 本地对比：拿同一批文件，各出一页——记忆卡（memory-card）与记忆树网（memory-ledger）。
  *
  * 用法：node scripts/dump.ts <workspace 目录> [config.json]
  * 规则从 config.json 的 `worlds.memory-card` 读，好让两边用同一套规则比。
@@ -76,7 +76,7 @@ console.log(`目录：${folder}`);
 console.log(`规则：${rules}`);
 console.log('');
 console.log(line('记忆卡', `${card.card.length} 字　${card.meta}`));
-console.log(line('记忆板', `${board.card.length} 字　${board.meta}`));
+console.log(line('记忆树网', `${board.card.length} 字　${board.meta}`));
 console.log('');
 
 const byPath = new Map(card.loaded.map((item) => [item.path, item.kept]));
@@ -95,9 +95,9 @@ console.log(`  ${board.cover.from ?? '?'} ~ ${board.cover.to ?? '?'}　缺 ${boa
   (board.cover.missing.length ? `：${board.cover.missing.join('、')}` : ''));
 for (const dup of board.cover.duplicates) console.log(`  重复 ${dup.date}：${dup.files.join(' 与 ')}`);
 
-// 行级差异：只报记忆板独有、或两边都有但字数不同的行，避免把整张卡打出来
+// 行级差异：只报记忆树网独有、或两边都有但字数不同的行，避免把整张卡打出来
 const before = new Set(card.card.split('\n'));
 const extra = board.card.split('\n').filter((row) => !before.has(row));
 console.log('');
-console.log(`记忆板多出来 ${extra.length} 行：`);
+console.log(`记忆树网多出来 ${extra.length} 行：`);
 for (const row of extra) console.log(`  ${row}`);

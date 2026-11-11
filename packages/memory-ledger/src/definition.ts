@@ -5,7 +5,7 @@ import { MemoryLedgerWorld } from './world.ts';
 
 export const MEMORY_LEDGER: WorldDefinition<MemoryLedgerConfigSection> = {
   id: MEMORY_LEDGER_ID,
-  label: 'Memory board',
+  label: 'Memory Graph',
   defaults: () => ({ ...MEMORY_LEDGER_DEFAULTS }),
   configOptions: () => [],
   // `ctx.cfg` 是活的配置段，规则与目录每次构建前缀时现读

@@ -31,14 +31,14 @@
   "cortico": {
     "kind": "world",
     "api": 6,
-    "displayName": "Memory Ledger",
+    "displayName": "Memory Graph",
     "tags": [
       "memory"
     ],
     "locales": {
       "zh": {
-        "displayName": "记忆板",
-        "description": "把要它记住的那几份裁成一页，交接前先放在眼前；卡尾还会说清哪几天缺、哪天躺在两份文件里。只读，不写，不联网。"
+        "displayName": "记忆树网",
+        "description": "把要它记住的那几份折成「一行一块」的图谱，交接前先放在眼前；末尾还会报出哪几天已在窗口外、哪一份条目超了，但一个块都不丢。只读，不写，不联网。"
       }
     }
   },

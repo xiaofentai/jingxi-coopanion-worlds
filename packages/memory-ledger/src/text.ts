@@ -15,10 +15,10 @@ export function memoryLedgerText(language: Language) {
 }
 
 const ZH = {
-  label: '记忆板',
+  label: '记忆树网',
   config: {
-    group: '记忆板',
-    groupDescription: '把记忆文件裁成一段交给前缀，并在卡尾报出哪几天缺、哪天重复。只读，不写盘。',
+    group: '记忆树网',
+    groupDescription: '把记忆文件折成「一行一块」的图谱交给前缀，并报出哪几天已在窗口外。只读，不写盘。',
     folder: { title: '目录', description: '记忆文件所在的目录；留空表示部署目录下的 workspace。' },
     todayFile: { title: '今天那份', description: '`ml_add` / `ml_edit` / `ml_delete` 不写 file 时写进哪一份；留空表示 超近期.md。改名后记得在这里改。' },
     archiveFile: { title: '归档到哪', description: '`ml_forget` 把条目移出后写进哪一份。留空表示 archive/大事记-归档.md。启用时若不存在会自动建一个。归档不进前缀，也不再回到原文件。' },
@@ -35,21 +35,22 @@ const ZH = {
     exclude: { title: '跳过的目录', description: '目录名或文件名，逗号分隔。' },
   },
   envPrompt: {
-    title: '记忆板的提示词',
-    description: '说明 ml.card / ml.index / ml.meta 分别是什么、什么时候要用。',
+    title: '记忆树网的提示词',
+    description: '说明 ml.card / ml.index / ml.meta / ml.policy 分别是什么、什么时候要用。',
     vars: {
-      'ml.card': '裁好的一页记忆：各份的正文，末尾附「未上卡的块」与「覆盖」。',
+      'ml.card': '折好的一页：各份的正文，末尾附「该整理的」与「覆盖」。',
       'ml.index': '没进规则的 .md 清单，只有路径与首行。',
-      'ml.meta': '一行摘要：读取几份、多少字、多少块未上卡、缺几天、生成时间。',
+      'ml.meta': '一行摘要：读取几份、多少字、几处该整理、几份偏长、缺几天、生成时间。',
+      'ml.policy': '从规则算出来的口径：各份留几天 / 几条，随设置变。',
     },
   },
 } as const;
 
 const EN = {
-  label: 'Memory board',
+  label: 'Memory Graph',
   config: {
-    group: 'Memory board',
-    groupDescription: 'Cuts the memory files into one page for the prefix, and reports which days are missing or duplicated. Read-only.',
+    group: 'Memory Graph',
+    groupDescription: 'Folds the memory files into a one-line-per-block graph for the prefix, and reports which days are past their window. Read-only.',
     folder: { title: 'Folder', description: 'Where the memory files are; empty means the deployment\'s workspace.' },
     todayFile: { title: 'Today\'s file', description: 'Which file `ml_add` / `ml_edit` / `ml_delete` write to when `file` is left out; empty means 超近期.md. Change it here if you rename that file.' },
     archiveFile: { title: 'Archive to', description: 'Where `ml_forget` writes the entry it moves out. Empty means archive/大事记-归档.md, created on enable if missing. The archive never enters the prefix and never comes back.' },
@@ -66,10 +67,10 @@ const EN = {
     exclude: { title: 'Skip', description: 'Directory or file names, comma separated.' },
   },
   envPrompt: {
-    title: 'The memory board prompt',
-    description: 'What ml.card, ml.index and ml.meta hold, and when to use them.',
+    title: 'The Memory Graph prompt',
+    description: 'What ml.card, ml.index, ml.meta and ml.policy hold, and when to use them.',
     vars: {
-      'ml.card': 'The cut page: each file\'s text, then blocks not on the board and the coverage line.',
+      'ml.card': 'The folded page: each file\'s text, then overdue days and the coverage line.',
       'ml.index': 'Files not in any rule: path and first line.',
       'ml.meta': 'One line: files, characters, blocks left off, days missing, when built.',
     },
