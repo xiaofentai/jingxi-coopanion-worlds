@@ -213,6 +213,36 @@ test('ml_check 报出首行不合格的块（抄流水第一条的那种）', ()
   }, '超近期.md', '超近期.md|catalog|7|');
 });
 
+test('ml_check 认裸行首行：不带 `- ` 也算这一块的第一句', () => {
+  sandbox((box) => {
+    // 把 11-10 的首条改成裸行的一句话——和目录取的是同一行
+    box.run('ml_edit', { block: '11-10', old: '- 13:00 生态箱同步报错。', new: '两场十二人局，写了 15k。' });
+    const receipt = box.run('ml_check', {});
+    // 内容判据过了：不再说“首行以 13:00 开头”
+    assert.ok(!receipt.includes('首行以 13:00 开头'));
+    // 但格式判据会报裸行（见下一个用例）
+    assert.match(receipt, /该整理 [12] 处/);
+  }, '超近期.md', '超近期.md|catalog|7|');
+});
+
+test('ml_check 报出裸行，并说清加个 `- ` 就成条目', () => {
+  sandbox((box) => {
+    box.run('ml_edit', { block: '11-10', old: '- 13:00 生态箱同步报错。', new: '两场十二人局，写了 15k。' });
+    const receipt = box.run('ml_check', {});
+    assert.match(receipt, /11-10」：首行是裸行（不成条目，ml_delete 删不掉）/);
+    assert.match(receipt, /加个 `- ` 前缀就成条目/);
+  }, '超近期.md', '超近期.md|catalog|7|');
+});
+
+test('ml_check 加了 `- ` 之后就不再报裸行', () => {
+  sandbox((box) => {
+    box.run('ml_edit', { block: '11-10', old: '- 13:00 生态箱同步报错。', new: '两场十二人局，写了 15k。' });
+    box.run('ml_edit', { block: '11-10', old: '两场十二人局，写了 15k。', new: '- 两场十二人局，写了 15k。' });
+    const receipt = box.run('ml_check', {});
+    assert.ok(!receipt.includes('裸行'));
+  }, '超近期.md', '超近期.md|catalog|7|');
+});
+
 test('ml_check 报出窗口外的天', () => {
   sandbox((box) => {
     const receipt = box.run('ml_check', {});

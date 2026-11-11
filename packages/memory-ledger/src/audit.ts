@@ -136,18 +136,38 @@ function tidyOf(docs: Array<{ rule: Rule; doc: Doc }>, today: string): TidyItem[
 
     for (const block of doc.blocks) {
       const handle = handleOf(block);
-      const first = block.entries[0];
-      if (!first) {
+      // 判据必须和 `catalog` 取行的地方一致：正文第一行非空行，去掉列表符号。
+      // 以前这里用 `entries[0]`，于是「写成裸行的一句话」会被漏判成流水第一条。
+      const text = (block.body.split('\n').map((line) => line.trim()).find(Boolean) ?? '')
+        .replace(/^[-*]\s+/, '')
+        .trim();
+      if (!text) {
         out.push({ file: doc.path, handle, reason: '块里一条都没有，目录里只有个日期' });
         continue;
       }
-      const text = first.text.trim();
       const clock = /^\d{1,2}:\d{2}/.exec(text);
       if (clock) {
         out.push({ file: doc.path, handle, reason: `首行以 ${clock[0]} 开头——这是流水第一条，不是这一天的一句话` });
       } else if (text.length > FIRST_LINE_MAX) {
         out.push({ file: doc.path, handle, reason: `首行 ${text.length} 字，超过 ${FIRST_LINE_MAX}：目录里会被截成半句` });
       }
+      // 裸行：不在任何条目的行里。目录认它（读的是正文第一行），但它不是条目——
+      // `ml_delete` 删不掉，再 `ml_add(first=true)` 会叠在它上面。加个 `- ` 前缀就成条目。
+      const covered = new Set(block.entries.flatMap((entry) => entry.lines));
+      const bare = block.body
+        .split('\n')
+        .map((line, index) => ({ text: line.trim(), no: block.startLine + 1 + index }))
+        .filter((item) => item.text && !covered.has(item.no));
+      if (bare.length) {
+        const first = bare[0];
+        const where = first.no === block.startLine + 1 ? '首行' : `块里第 ${first.no - block.startLine} 行`;
+        out.push({
+          file: doc.path,
+          handle,
+          reason: `${where}是裸行（不成条目，ml_delete 删不掉）：${first.text.slice(0, 30)}——加个 \`- \` 前缀就成条目`,
+        });
+      }
+
       if (Number.isFinite(window) && window > 0 && block.kind === 'day' && block.date) {
         const age = daysBetween(block.date, today);
         if (age >= window) out.push({ file: doc.path, handle, reason: `已第 ${age + 1} 天（窗口 ${window} 天）：该搬到下一份` });
