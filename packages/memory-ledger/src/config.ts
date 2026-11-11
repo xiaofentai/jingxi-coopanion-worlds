@@ -26,12 +26,7 @@ export const ARCHIVE_FRONT = [
   '',
 ].join('\n');
 
-/**
- * 哪一份文件有上限、上限多少。满了 `ml_add` 就拒绝，逼她做一次选择：
- * 换掉一条（`ml_forget`），或者这一条直接写进归档。默认值只在这里出现。
- */
-export const DEFAULT_CAP_FILE = '大事记.md';
-export const DEFAULT_CAP_CHARS = 5000;
+
 
 export interface MemoryLedgerConfigSection extends WorldSection {
   /** 目录：绝对路径，或相对部署目录；空表示 `workspace`。 */
@@ -40,10 +35,6 @@ export interface MemoryLedgerConfigSection extends WorldSection {
   todayFile: string;
   /** `ml_forget` 的默认归档文件；空表示 `DEFAULT_ARCHIVE_FILE`。 */
   archiveFile: string;
-  /** 有上限的那一份，如 `大事记.md`；空表示 `DEFAULT_CAP_FILE`。 */
-  capFile: string;
-  /** 上限字数；满了 `ml_add` 就拒绝。0 表示不限。 */
-  capChars: number;
   /** 一条规则，`路径|模式|参数|字数上限|方向`。设置页是单行输入，所以一条一行。 */
   rule1: string;
   rule2: string;
@@ -52,8 +43,6 @@ export interface MemoryLedgerConfigSection extends WorldSection {
   rule5: string;
   /** 超出五个槽的规则，分号分隔，格式同上。 */
   extraRules: string;
-  /** 整张板的字数上限。 */
-  totalChars: number;
   /** 没进规则的 `.md` 只列路径和首行。 */
   listOthers: boolean;
   listMax: number;
@@ -66,15 +55,12 @@ export const MEMORY_LEDGER_DEFAULTS: MemoryLedgerConfigSection = {
   folder: 'workspace',
   todayFile: DEFAULT_TODAY_FILE,
   archiveFile: DEFAULT_ARCHIVE_FILE,
-  capFile: DEFAULT_CAP_FILE,
-  capChars: DEFAULT_CAP_CHARS,
   rule1: '',
   rule2: '',
   rule3: '',
   rule4: '',
   rule5: '',
   extraRules: '',
-  totalChars: 20000,
   listOthers: true,
   listMax: 12,
   exclude: '.git,node_modules,archive,handoffs,blobs,petdiary,PARTNER.md,CONSTITUTION.md',
@@ -131,22 +117,6 @@ export function memoryLedgerConfigGroup(language: Language = 'zh'): ConfigGroup 
           'x-path': { kind: 'file', extensions: ['.md'] },
           'x-hot': true,
         },
-        [`${K}.capFile`]: {
-          type: 'string',
-          title: c.capFile.title,
-          description: c.capFile.description,
-          'x-path': { kind: 'file', extensions: ['.md'] },
-          'x-hot': true,
-        },
-        [`${K}.capChars`]: {
-          type: 'integer',
-          title: c.capChars.title,
-          description: c.capChars.description,
-          minimum: 0,
-          maximum: 200_000,
-          'x-suffix': c.capChars.suffix,
-          'x-hot': true,
-        },
         [`${K}.rule1`]: rule(1),
         [`${K}.rule2`]: rule(2),
         [`${K}.rule3`]: rule(3),
@@ -156,15 +126,6 @@ export function memoryLedgerConfigGroup(language: Language = 'zh'): ConfigGroup 
           type: 'string',
           title: c.extraRules.title,
           description: c.extraRules.description,
-          'x-hot': true,
-        },
-        [`${K}.totalChars`]: {
-          type: 'integer',
-          title: c.totalChars.title,
-          description: c.totalChars.description,
-          minimum: 0,
-          maximum: 200_000,
-          'x-suffix': c.totalChars.suffix,
           'x-hot': true,
         },
         [`${K}.listOthers`]: {

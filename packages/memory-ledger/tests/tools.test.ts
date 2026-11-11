@@ -41,7 +41,7 @@ interface Sandbox {
   read: (name: string) => string;
 }
 
-function sandbox(run: (box: Sandbox) => void, todayFile = '超近期.md', capChars = 0): void {
+function sandbox(run: (box: Sandbox) => void, todayFile = '超近期.md', rules = RULES): void {
   const root = mkdtempSync(join(tmpdir(), 'ledger-tools-'));
   const folder = join(root, 'workspace');
   const backups = join(root, 'backups');
@@ -51,13 +51,11 @@ function sandbox(run: (box: Sandbox) => void, todayFile = '超近期.md', capCha
   writeFileSync(join(folder, '大事记.md'), DSJ, 'utf8');
   const tools = createLedgerTools({
     folder: () => folder,
-    rules: () => RULES,
+    rules: () => rules,
     backupDir: () => backups,
     today: () => '2026-11-10',
     todayFile: () => todayFile,
     archiveFile: () => '',
-    capFile: () => '大事记.md',
-    capChars: () => capChars,
   });
   const box: Sandbox = {
     folder,
@@ -160,31 +158,41 @@ test('ml_forget 找不到那条就不动盘', () => {
   });
 });
 
-test('ml_add 撞到上限时拒绝，并把两条路与现有条目给回去', () => {
+/** 大事记 的上限写在它自己的规则里：catalog 的第 4 段是条目数。 */
+const RULES_CAP = `${RULES}; 大事记.md|catalog||2`;
+
+test('ml_add 超过条目上限两倍时拒绝，并把两条路与现有条目给回去', () => {
   sandbox((box) => {
-    const receipt = box.run('ml_add', { file: '大事记.md', block: '2026-11', text: '新的一条。' });
-    assert.match(receipt, /已满：\d+／10 字/);
+    // 现在 大事记 是 3 条，上限 2 → 没到两倍（4），照写，但回执报账
+    const ok = box.run('ml_add', { file: '大事记.md', block: '2026-11', text: '第三条。' });
+    assert.match(ok, /已记进 大事记\.md/);
+    assert.match(ok, /现在 4 条，超过上限 2/);
+    assert.match(ok, /alarm_set/);
+
+    // 4 条 = 上限的两倍 → 拒绝
+    const receipt = box.run('ml_add', { file: '大事记.md', block: '2026-11', text: '第五条。' });
+    assert.match(receipt, /已经 4 条，超过 2 的两倍/);
     assert.match(receipt, /ml_forget\(file="大事记\.md"/);
     assert.match(receipt, /archive\/大事记-归档\.md/);
-    assert.match(receipt, /现在有：2026-10（2 条）、2026-11（1 条）/);
-    assert.match(receipt, /最早的块 2026-10 现有 2 条，前 2 条/);
-    assert.ok(!box.read('大事记.md').includes('新的一条'));
-  }, '超近期.md', 10);
+    assert.match(receipt, /现在有：2026-10（2 条）、2026-11（2 条）/);
+    assert.ok(!box.read('大事记.md').includes('第五条'));
+  }, '超近期.md', RULES_CAP);
 });
 
-test('上限只管那一份：不满时照写，满时写归档仍然成功', () => {
+test('上限只管写了 catalog 规则的那一份；没写规则的照写不误', () => {
   sandbox((box) => {
-    // 不满（cap 很大）→ 正常写进大事记
-    assert.match(box.run('ml_add', { file: '大事记.md', block: '2026-11', text: '正常一条。' }), /已记进 大事记\.md/);
-  }, '超近期.md', 100_000);
-
-  sandbox((box) => {
-    // 满了，但走归档那条路不受上限影响，而且归档文件是新建的
+    // 超近期 没有 catalog 规则 → 完全不受条目上限约束
+    for (let i = 0; i < 5; i += 1) {
+      assert.match(box.run('ml_add', { text: `第 ${i} 条。` }), /已记进 超近期\.md/);
+    }
+    // 大记事满了也不影响往归档写，且归档文件是新建的
+    box.run('ml_add', { file: '大事记.md', block: '2026-11', text: 'a' });
+    box.run('ml_add', { file: '大事记.md', block: '2026-11', text: 'b' });
     const receipt = box.run('ml_add', { file: 'archive/大事记-归档.md', block: '2026-11', text: '这条只进归档。' });
     assert.match(receipt, /已记进 archive\/大事记-归档\.md/);
     assert.match(receipt, /原来没有，这次建起来了/);
     assert.match(box.read('archive/大事记-归档.md'), /这条只进归档。/);
-  }, '超近期.md', 10);
+  }, '超近期.md', RULES_CAP);
 });
 
 test('ml_move 整块搬走，源里一天不少', () => {

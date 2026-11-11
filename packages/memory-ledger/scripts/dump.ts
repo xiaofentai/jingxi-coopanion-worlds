@@ -69,7 +69,7 @@ const shared = {
 };
 
 const card = buildCard({ ...shared, totalChars: cfg.totalChars ?? 6000, language: 'zh' });
-const board = buildBoard({ ...shared, totalChars: cfg.totalChars ?? 6000, today: today(), language: 'zh' });
+const board = buildBoard({ ...shared, today: today(), language: 'zh' });
 
 const line = (label: string, text: string) => `${label.padEnd(10, ' ')}${text}`;
 console.log(`目录：${folder}`);

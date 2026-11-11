@@ -30,7 +30,6 @@ export interface BoardInput {
   folder: string;
   /** 一行一份：`路径|模式|参数|字数上限|方向`，分号或换行分隔。 */
   rules: string;
-  totalChars: number;
   listOthers: boolean;
   listMax: number;
   exclude: string[];
@@ -66,6 +65,8 @@ export interface BoardResult {
   card: string;
   index: string;
   meta: string;
+  /** 从规则算出来的口径（几层、各留多少天 / 几条），随设置变。 */
+  policy: string;
   loaded: Loaded[];
   missing: string[];
   cover: CoverReport;
@@ -73,8 +74,13 @@ export interface BoardResult {
 
 const MODES: readonly RuleMode[] = ['whole', 'marker', 'newest', 'newest+pin', 'catalog'];
 
-/** `catalog` 每行默认留多少字：够写一句「这一天」，又不至于吃掉下一天。 */
-const CATALOG_LINE = 30;
+/** `catalog` 每行留多少字：够写一句「这一天」，又不至于吃掉下一天。 */
+const CATALOG_LINE = 40;
+/**
+ * 兜底：目录超过这么多行就只显示最近的，并明说。
+ * 正常是「窗口天数 + 月份数」约 31 行，200 天不整理也才 200 行——这条只在事故里触发。
+ */
+const CATALOG_MAX_ROWS = 100;
 
 const TEXT = {
   zh: {
@@ -83,16 +89,22 @@ const TEXT = {
     empty: '（记忆板是空的：规则为空，或目录里没有匹配的文件。）',
     missing: (file: string) => `（${file} 不存在，跳过。）`,
     noMarker: (marker: string) => `（没找到「${marker}」，整份载入。）`,
-    truncated: (n: number, file: string, at: Cut) =>
-      at === 'head'
-        ? `（已截断：前面还有 ${n} 字未载入，用 read_file 查看 ${file}。）`
-        : `（已截断：还有 ${n} 字未载入，用 read_file 查看 ${file}。）`,
-    catalogDrop: (n: number) => `（更早的 ${n} 天没上卡，见卡尾「未上卡的块」。）`,
+    overLong: (file: string, chars: number, limit: number) =>
+      `（${file} 现在 ${chars} 字，超过提醒线 ${limit}。**不截断**，整份都在上面；只是该收一收了。）`,
+    catalogDrop: (n: number) => `（异常：目录 ${n} 行没有显示，先整理再往里写。）`,
     headFrom: (title: string) => `（前面已截断；这一段从「${title}」中间开始。）`,
     badRule: (line: string) => `（规则写错了，跳过：${line}）`,
     omittedTitle: '### 未上卡的块',
     omittedLine: (file: string, title: string, chars: number) => `- ${file}：${title} ${chars} 字`,
     omittedOver: (n: number) => `- 另有 ${n} 块没有列出。`,
+    dueTitle: '### 该整理的',
+    dueLine: (file: string, text: string) => `- ${file}：${text}`,
+    dueOver: (n: number) => `- 另有 ${n} 处没有列出。`,
+    policyDays: (file: string, days: number) => `${file} 留 ${days} 天`,
+    policyCap: (file: string, cap: number) => `${file} 最多 ${cap} 条`,
+    policyLine: (parts: string[], empty: boolean) => (empty
+      ? '记忆口径：还没有目录规则（整份 / 标记模式不受天数限制）。'
+      : `记忆口径（随设置变）：${parts.join('｜')}｜目录一行一块全上卡，超窗口的进「该整理的」`),
     coverTitle: '### 覆盖',
     coverRange: (from: string, to: string) => `记忆覆盖 ${from} ~ ${to}`,
     coverOk: '，没有缺口。',
@@ -105,9 +117,11 @@ const TEXT = {
     othersOver: (n: number) => `- 另有 ${n} 个文件没有列出。`,
     over: (n: number) => `（还有 ${n} 份因总上限没有载入。）`,
     error: (msg: string) => `（记忆板生成失败：${msg}）`,
-    meta: (files: number, chars: number, omitted: number, holes: number, stamp: string) => {
+    meta: (files: number, chars: number, omitted: number, holes: number, due: number, long: number, stamp: string) => {
       const parts = [`读取 ${files} 份`, `${chars} 字`];
       if (omitted > 0) parts.push(`${omitted} 块未上卡`);
+      if (due > 0) parts.push(`该整理 ${due} 处`);
+      if (long > 0) parts.push(`${long} 份偏长`);
       if (holes > 0) parts.push(`缺 ${holes} 天`);
       parts.push(stamp);
       return parts.join(' / ');
@@ -121,16 +135,22 @@ const TEXT = {
     empty: '(The board is empty: no rules, or nothing in the folder matches them.)',
     missing: (file: string) => `(${file} is missing; skipped.)`,
     noMarker: (marker: string) => `("${marker}" not found; the whole file is loaded.)`,
-    truncated: (n: number, file: string, at: Cut) =>
-      at === 'head'
-        ? `(Truncated: the first ${n} characters are not here; use read_file for ${file}.)`
-        : `(Truncated: ${n} characters are not here; use read_file for ${file}.)`,
+    overLong: (file: string, chars: number, limit: number) =>
+      `(${file} is now ${chars} characters, past the ${limit} reminder line. **Nothing is truncated** — it is all above; it is just time to trim it.)`,
     catalogDrop: (n: number) => `(The ${n} older days are not on the board; see "Blocks not on the board" at the end.)`,
     headFrom: (title: string) => `(The beginning is cut; this part starts in the middle of "${title}".)`,
     badRule: (line: string) => `(Bad rule, skipped: ${line})`,
     omittedTitle: '### Blocks not on the board',
     omittedLine: (file: string, title: string, chars: number) => `- ${file}: ${title} (${chars} characters)`,
     omittedOver: (n: number) => `- ${n} more blocks are not listed.`,
+    dueTitle: '### Due for tidying',
+    dueLine: (file: string, text: string) => `- ${file}: ${text}`,
+    dueOver: (n: number) => `- ${n} more are not listed.`,
+    policyDays: (file: string, days: number) => `${file}: ${days} days`,
+    policyCap: (file: string, cap: number) => `${file}: ${cap} entries at most`,
+    policyLine: (parts: string[], empty: boolean) => (empty
+      ? 'Memory policy: no catalog rule yet (whole / marker modes are not limited by days).'
+      : `Memory policy (follows the settings): ${parts.join(' | ')} | one line per block, nothing dropped; overdue items go to "Due for tidying"`),
     coverTitle: '### Coverage',
     coverRange: (from: string, to: string) => `Memory covers ${from} to ${to}`,
     coverOk: ', no gaps.',
@@ -143,9 +163,11 @@ const TEXT = {
     othersOver: (n: number) => `- ${n} more files are not listed.`,
     over: (n: number) => `(${n} more files did not fit under the total limit.)`,
     error: (msg: string) => `(Building the board failed: ${msg})`,
-    meta: (files: number, chars: number, omitted: number, holes: number, stamp: string) => {
+    meta: (files: number, chars: number, omitted: number, holes: number, due: number, long: number, stamp: string) => {
       const parts = [`${files} files`, `${chars} characters`];
       if (omitted > 0) parts.push(`${omitted} blocks not on the board`);
+      if (due > 0) parts.push(`${due} to tidy`);
+      if (long > 0) parts.push(`${long} running long`);
       if (holes > 0) parts.push(`${holes} days missing`);
       parts.push(stamp);
       return parts.join(' / ');
@@ -241,30 +263,14 @@ function coverSection(cover: CoverReport, language: 'zh' | 'en'): string {
   ].join('\n');
 }
 
-function cap(text: string, max: number, cut: Cut): { text: string; truncated: number; cut: Cut; from?: string } {
-  const trimmed = text.trim();
-  if (max <= 0 || trimmed.length <= max) return { text: trimmed, truncated: 0, cut };
-  if (cut === 'head') {
-    const at = trimmed.length - max;
-    const nl = trimmed.indexOf('\n', at);
-    const head = (nl >= 0 && nl + 1 < trimmed.length ? trimmed.slice(nl + 1) : '').trimStart();
-    const start = head ? nl + 1 : at;
-    const kept = head || trimmed.slice(at).trimStart();
-    const from = kept.startsWith('## ') ? undefined : headingBefore(trimmed, start);
-    return { text: kept, truncated: trimmed.length - kept.length, cut, ...(from ? { from } : {}) };
-  }
-  return { text: trimmed.slice(0, max).trimEnd(), truncated: trimmed.length - max, cut };
-}
-
-function headingBefore(text: string, at: number): string | undefined {
-  let title: string | undefined;
-  for (const match of text.matchAll(/^##\s+.*$/gm)) {
-    const index = match.index ?? 0;
-    if (index >= at) break;
-    const value = match[0].replace(/^##\s+/, '').trim();
-    if (value) title = value;
-  }
-  return title;
+/**
+ * 整份交给卡：**不截断**。
+ *
+ * 以前 `路径|whole||1600` 会切到 1600 字，切掉的部分只在卡上说一句「已截断」——
+ * 那也是一种静默丢内容。现在这个数字改成**提醒线**：照给全文，只在超了的时候提一句该收了。
+ */
+function whole(text: string): { text: string; truncated: number; cut: Cut } {
+  return { text: text.trim(), truncated: 0, cut: 'tail' };
 }
 
 interface Picked {
@@ -279,63 +285,81 @@ interface Picked {
   omitted?: Array<{ title: string; chars: number }>;
 }
 
-/**
- * 目录：每个块只出一行「标题 + 首行」。
- *
- * 和 `whole` 的根本区别是单位——`whole` 按**字数**切文本，切到哪算哪、切掉的不报；
- * `catalog` 按**块**出，一天一行，超预算时丢最旧的那几天，并且把丢掉的块写进「未上卡的块」。
- * 条数不再随某一天暴涨而变化。
- */
-function catalogOf(doc: Doc, rule: Rule): Picked {
-  const asked = Number.parseInt(rule.arg.trim(), 10);
-  const perLine = Number.isFinite(asked) && asked > 0 ? asked : CATALOG_LINE;
-  const rows = doc.blocks.map((block) => {
+/** 目录的一行：短日期 + 那天的首行（超长就截断）。 */
+function catalogRows(doc: Doc): Array<{ block: Block; line: string; chars: number }> {
+  return doc.blocks.map((block) => {
     // 目录行的前缀尽量短：日块 `11-08`、月块 `2026-10`、特殊块用原名
     const handle = block.kind === 'special'
       ? block.title
       : block.kind === 'day' ? (block.date ?? block.title).slice(5) : (block.date ?? block.title);
     const first = block.body.split('\n').map((line) => line.trim()).find(Boolean) ?? '';
     const flat = first.replace(/^[-*]\s+/, '').replace(/\s+/g, ' ').trim();
-    const clipped = flat.length > perLine ? `${flat.slice(0, perLine)}…` : flat;
+    const clipped = flat.length > CATALOG_LINE ? `${flat.slice(0, CATALOG_LINE)}…` : flat;
     return { block, line: clipped ? `${handle} ${clipped}` : handle, chars: block.heading.length + 1 + block.body.length };
   });
+}
+
+/**
+ * 目录：每个块只出一行「标题 + 首行」，**全部出，不按预算丢**。
+ *
+ * 这是这一版的根本区别：`whole` 按**字数**切文本（切掉的不报），上一版 `catalog` 按预算丢最旧（会报，但仍是丢）。
+ * 现在一个块也不丢——行数增长是「一天一行」，不整理一个月也才 30 行。
+ * 「哪些该搬到下一份」由 `dueOf` 算成待办，进卡尾的「该整理的」，不靠从卡上抹掉来说话。
+ */
+function catalogOf(doc: Doc): Picked {
+  const rows = catalogRows(doc);
   if (!rows.length) return { text: '', truncated: 0, cut: 'head', blocks: 0 };
-
-  const joined = rows.map((row) => row.line).join('\n');
-  if (rule.maxChars <= 0 || joined.length <= rule.maxChars) {
-    return { text: joined, truncated: 0, cut: 'head', blocks: rows.length };
-  }
-
-  // 超预算：留最新的，从最旧的开始丢
-  let keep = rows.length;
-  let text = joined;
-  while (keep > 1 && text.length > rule.maxChars) {
-    keep -= 1;
-    text = rows.slice(rows.length - keep).map((row) => row.line).join('\n');
-  }
-  const droppedRows = rows.slice(0, rows.length - keep);
-  const omitted = droppedRows
-    .filter((row) => row.block.key > 0)
-    .map((row) => ({ title: row.block.title, chars: row.chars }));
+  const kept = rows.slice(Math.max(0, rows.length - CATALOG_MAX_ROWS));
   return {
-    text,
+    text: kept.map((row) => row.line).join('\n'),
     truncated: 0,
     cut: 'head',
-    blocks: keep,
-    dropped: droppedRows.length,
-    ...(omitted.length ? { omitted } : {}),
+    blocks: kept.length,
+    ...(rows.length > kept.length ? { dropped: rows.length - kept.length } : {}),
   };
 }
 
+/** 两个 `YYYY-MM-DD` 相差几天（`to` 减 `from`）。 */
+function daysBetween(from: string, to: string): number {
+  const at = Date.UTC(...(from.split('-').map(Number) as [number, number, number]));
+  const bt = Date.UTC(...(to.split('-').map(Number) as [number, number, number]));
+  return Math.round((bt - at) / 86_400_000);
+}
+
+/**
+ * 该整理什么：目录窗口外的天、超额的条目。
+ *
+ * 只算账，不动卡——报出来比从卡上抹掉有效（抹掉就变成「她不知道自己不知道」）。
+ */
+function dueOf(rule: Rule, doc: Doc, today: string, entries: number): string[] {
+  const out: string[] = [];
+  const window = Number.parseInt(rule.arg.trim(), 10);
+  if (Number.isFinite(window) && window > 0) {
+    for (const block of doc.blocks) {
+      if (block.kind !== 'day' || !block.date) continue;
+      const age = daysBetween(block.date, today);
+      if (age >= window) out.push(`${handleOfBlock(block)} 已第 ${age + 1} 天（窗口 ${window} 天），${block.heading.length + 1 + block.body.length} 字`);
+    }
+  }
+  if (rule.maxChars > 0 && entries > rule.maxChars) out.push(`共 ${entries} 条（上限 ${rule.maxChars}）`);
+  return out;
+}
+
+/** 块在目录/报账里的短名。 */
+function handleOfBlock(block: Block): string {
+  if (block.kind === 'special') return block.title;
+  return block.kind === 'day' ? (block.date ?? block.title).slice(5) : (block.date ?? block.title);
+}
+
 function pick(doc: Doc, rule: Rule): Picked {
-  if (rule.mode === 'whole') return { ...cap(doc.text, rule.maxChars, rule.cut), blocks: 0 };
-  if (rule.mode === 'catalog') return catalogOf(doc, rule);
+  if (rule.mode === 'whole') return { ...whole(doc.text), blocks: 0 };
+  if (rule.mode === 'catalog') return catalogOf(doc);
   if (rule.mode === 'marker') {
     const marker = rule.arg.trim();
-    if (!marker) return { ...cap(doc.text, rule.maxChars, rule.cut), blocks: 0 };
+    if (!marker) return { ...whole(doc.text), blocks: 0 };
     const at = doc.text.split('\n').findIndex((line) => line.trimStart().startsWith(marker));
-    if (at < 0) return { ...cap(doc.text, rule.maxChars, rule.cut), blocks: 0, note: 'no-marker' };
-    return { ...cap(doc.text.split('\n').slice(0, at).join('\n'), rule.maxChars, rule.cut), blocks: 0 };
+    if (at < 0) return { ...whole(doc.text), blocks: 0, note: 'no-marker' };
+    return { ...whole(doc.text.split('\n').slice(0, at).join('\n')), blocks: 0 };
   }
 
   // 分块模式：按日期取最新的几块，保持文件里的原顺序
@@ -351,73 +375,21 @@ function pick(doc: Doc, rule: Rule): Picked {
   const picked = doc.blocks.filter((b) => chosen.has(b));
 
   const front = doc.front.trim() ? `${doc.front.trimEnd()}\n\n` : '';
-  const total = front.length + picked.reduce((n, b) => n + b.body.length + b.heading.length + 1, 0);
   const joined = front + picked.map((b) => `${b.heading}\n${b.body}`).join('');
-  const kept = capBlocks(front, picked, joined, total, rule.maxChars, rule.cut);
-  const onCard = new Set(kept.kept);
+  const onCard = new Set(picked);
   const omitted = doc.blocks
     .filter((block) => !onCard.has(block) && block.key > 0)
     .map((block) => ({ title: block.title, chars: block.heading.length + 1 + block.body.length }));
   return {
-    text: kept.text,
-    truncated: kept.truncated,
-    cut: kept.cut,
-    ...(kept.from ? { from: kept.from } : {}),
-    blocks: kept.blocks,
+    text: joined.trim(),
+    truncated: 0,
+    cut: 'tail',
+    blocks: picked.length,
     ...(omitted.length ? { omitted } : {}),
   };
 }
 
-/** `tail` 超上限先丢最旧的块，再从尾部硬截；`head` 不丢块，按换行截头、保留结尾。 */
-function capBlocks(
-  front: string,
-  blocks: Doc['blocks'],
-  joined: string,
-  total: number,
-  max: number,
-  cut: Cut,
-): { text: string; truncated: number; blocks: number; kept: Doc['blocks']; cut: Cut; from?: string } {
-  if (max <= 0 || joined.length <= max) {
-    return { text: joined.trim(), truncated: 0, blocks: blocks.length, kept: blocks.slice(), cut };
-  }
-  if (cut === 'head') {
-    const at = joined.length - max;
-    const nl = joined.indexOf('\n', at);
-    const cutAt = nl >= 0 && nl + 1 < joined.length ? nl + 1 : at;
-    const head = joined.slice(cutAt).trimStart();
-    const text = head || joined.slice(at).trimStart();
-    const start = head ? cutAt : at;
-    let offset = front.length;
-    const kept: Doc['blocks'] = [];
-    for (const block of blocks) {
-      const end = offset + block.heading.length + 1 + block.body.length;
-      if (end > start) kept.push(block);
-      offset = end;
-    }
-    const from = text.startsWith('## ') ? undefined : blockTitleBefore(blocks, front.length, start);
-    return { text, truncated: total - text.length, blocks: kept.length, kept, cut, ...(from ? { from } : {}) };
-  }
-  let keep = blocks.slice();
-  while (keep.length > 1 && front.length + keep.reduce((n, b) => n + b.heading.length + 1 + b.body.length, 0) > max) {
-    keep = keep.slice(1);
-  }
-  const trimmed = (front + keep.map((b) => `${b.heading}\n${b.body}`).join('')).trim();
-  if (trimmed.length <= max) {
-    return { text: trimmed, truncated: total - trimmed.length, blocks: keep.length, kept: keep, cut };
-  }
-  return { text: trimmed.slice(0, max).trimEnd(), truncated: total - max, blocks: keep.length, kept: keep, cut };
-}
 
-function blockTitleBefore(blocks: Doc['blocks'], frontLength: number, at: number): string | undefined {
-  let offset = frontLength;
-  let title: string | undefined;
-  for (const block of blocks) {
-    if (offset >= at) break;
-    if (block.title) title = block.title;
-    offset += block.heading.length + 1 + block.body.length;
-  }
-  return title;
-}
 
 function omittedSection(list: Array<{ file: string; title: string; chars: number }>, max: number, language: 'zh' | 'en'): string {
   const t = TEXT[language];
@@ -427,6 +399,17 @@ function omittedSection(list: Array<{ file: string; title: string; chars: number
   const rest = list.length - shown.length;
   if (rest > 0) lines.push(t.omittedOver(rest));
   return [t.omittedTitle, ...lines].join('\n');
+}
+
+/** 「该整理的」：窗口外的天、超额的条目。只报账，不从卡上抹掉任何东西。 */
+function dueSection(list: Array<{ file: string; text: string }>, max: number, language: 'zh' | 'en'): string {
+  const t = TEXT[language];
+  if (!list.length) return '';
+  const shown = max > 0 ? list.slice(0, max) : [];
+  const lines = shown.map((item) => t.dueLine(item.file, item.text));
+  const rest = list.length - shown.length;
+  if (rest > 0) lines.push(t.dueOver(rest));
+  return [t.dueTitle, ...lines].join('\n');
 }
 
 function listOthers(
@@ -495,7 +478,20 @@ function firstLine(file: string): string {
 }
 
 function blank(text: string): BoardResult {
-  return { card: text, index: '', meta: '', loaded: [], missing: [], cover: { from: null, to: null, missing: [], duplicates: [] } };
+  return { card: text, index: '', meta: '', policy: '', loaded: [], missing: [], cover: { from: null, to: null, missing: [], duplicates: [] } };
+}
+
+/** 口径：从规则里直接读出来，不再让人手写天数。 */
+function policyOf(rules: readonly Rule[], language: 'zh' | 'en'): string {
+  const t = TEXT[language];
+  const parts: string[] = [];
+  for (const rule of rules) {
+    if (rule.mode !== 'catalog') continue;
+    const days = Number.parseInt(rule.arg.trim(), 10);
+    if (Number.isFinite(days) && days > 0) parts.push(t.policyDays(rule.path, days));
+    if (rule.maxChars > 0) parts.push(t.policyCap(rule.path, rule.maxChars));
+  }
+  return t.policyLine(parts, parts.length === 0);
 }
 
 function resolveFolder(folder: string): string | null {
@@ -523,16 +519,12 @@ export function buildBoard(input: BoardInput): BoardResult {
     const missing: string[] = [];
     const sections: string[] = [];
     const omitted: Array<{ file: string; title: string; chars: number }> = [];
+    const due: Array<{ file: string; text: string }> = [];
     const docs: Doc[] = [];
     let chars = 0;
-    let dropped = 0;
-    let full = false;
+    let long = 0;
 
     for (const rule of rules) {
-      if (full) {
-        dropped += 1;
-        continue;
-      }
       const file = resolveIn(folder, rule.path);
       if (!file) {
         notes.push(t.badRule(rule.path));
@@ -553,39 +545,45 @@ export function buildBoard(input: BoardInput): BoardResult {
         picked.text,
         ...(picked.note === 'no-marker' ? ['', t.noMarker(rule.arg)] : []),
         ...(picked.dropped ? ['', t.catalogDrop(picked.dropped)] : []),
-        ...(picked.truncated > 0 ? ['', t.truncated(picked.truncated, rule.path, picked.cut)] : []),
+        // 第四段现在是「提醒线」：超了照给全文，只提一句（catalog 的第四段是条目数，另算）
+        ...(rule.mode !== 'catalog' && rule.maxChars > 0 && picked.text.length > rule.maxChars
+          ? ['', t.overLong(rule.path, picked.text.length, rule.maxChars)]
+          : []),
       ].join('\n');
-      if (chars + section.length > input.totalChars) {
-        full = true;
-        dropped += 1;
-        continue;
-      }
+      if (rule.mode !== 'catalog' && rule.maxChars > 0 && picked.text.length > rule.maxChars) long += 1;
       chars += section.length;
       sections.push(section);
       for (const block of picked.omitted ?? []) omitted.push({ file: rule.path, ...block });
+      // 目录只算账、不剪卡：窗口外的天与超额条目进「该整理的」
+      if (rule.mode === 'catalog') {
+        const entries = read.doc.blocks.reduce((n, block) => n + block.entries.length, 0);
+        for (const text of dueOf(rule, read.doc, input.today, entries)) due.push({ file: rule.path, text });
+      }
       loaded.push({ path: rule.path, mode: rule.mode, kept: picked.text.length, source: read.doc.text.length, blocks: picked.blocks });
     }
 
     if (!sections.length) notes.push(t.empty);
-    if (dropped > 0) notes.push(t.over(dropped));
 
     const cover = coverOf(docs, input.today, input.language);
     const known = new Set(rules.map((r) => r.path));
     const listing = input.listOthers ? listOthers(folder, input.exclude, known, input.listMax, input.language) : { index: '', others: [] };
     const omittedText = omittedSection(omitted, input.listMax, input.language);
+    const dueText = dueSection(due, input.listMax, input.language);
 
     const card = [
       ...sections,
       ...notes,
       ...(omittedText ? [omittedText] : []),
+      ...(dueText ? [dueText] : []),
       coverSection(cover, input.language),
     ].join('\n\n').trim();
 
     return {
       card,
+      policy: policyOf(rules, input.language),
       index: listing.index,
       meta: loaded.length
-        ? t.meta(loaded.length, chars, omitted.length, cover.missing.length, input.stamp)
+        ? t.meta(loaded.length, chars, omitted.length, cover.missing.length, due.length, long, input.stamp)
         : t.metaEmpty(input.stamp),
       loaded,
       missing,

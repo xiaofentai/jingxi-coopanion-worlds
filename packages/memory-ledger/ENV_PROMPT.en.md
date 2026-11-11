@@ -4,6 +4,8 @@ What follows was read from disk again when the prefix was built; it is not what 
 
 {{ml.meta}}
 
+{{ml.policy}}
+
 {{ml.card}}
 
 {{ml.index}}
@@ -11,8 +13,9 @@ What follows was read from disk again when the prefix was built; it is not what 
 ### How to use it
 
 - Read the "Coverage" section at the end first: how far the memory reaches, which days are missing, whether a day sits in two files at once. If something is missing or doubled, put that right before tidying anything else.
-- A section marked "Truncated" is missing part of the file: read the file with `read_file` rather than filling in from memory.
-- "Blocks not on the board" lists what the character limits kept out: open them before tidying. The board was built at the handoff and may be hours old.
+- **Nothing is truncated.** When a file is followed by "past the reminder line", it simply grew longer than the setting (time to trim it); nothing is missing, so do not assume a gap.
+- "Due for tidying" is a **to-do list**: which day is already past its window, which file has more entries than its cap. It does not mean anything is lost — every block gets a line, and that line is still there.
+- "Blocks not on the board" only appears for `newest`-style rules: open them before tidying.
 - Nothing on the board means nothing is known; do not fill the gap with what you remember.
 
 ### Writing to the memory
@@ -20,12 +23,13 @@ What follows was read from disk again when the prefix was built; it is not what 
 Change these files through the tools, **not with `write_file` / `append_file` / `edit_file`**: the end of the file is "还挂着", so an append lands inside that block.
 
 - Add an entry → `ml_add`. When the same thing happened before, name those dates with `again`.
-- Write "the one line for this day" → `ml_add(..., first=true)`, which puts it at the very front of the block instead of the end. The first line of every dated block is that day's one line: 30 characters at most, the day's through-line (not the first line of the log, and not starting with a clock time like `13:00`). Details go below it.
+- Write "the one line for this day" → `ml_add(..., first=true)`, which puts it at the very front of the block instead of the end. The first line of every dated block is that day's one line: 40 characters at most, the day's through-line (not the first line of the log, and not starting with a clock time like `13:00`). Details go below it. **This line is the entry that will later move into `大事记`**, so it has to stand on its own.
 - Change one sentence → `ml_edit(file, block, old, new)`. Copy `old` exactly; it must appear once in that block. To turn one entry into two, put a line break in `new`. The file's head (the lines before the first `##`, which belong to no block) is `block="文件头"`.
 - Remove one entry → `ml_delete(file, block, old)`. A fragment of the entry is enough; two matches are refused.
-- Retire an entry (not the same as removing) → `ml_forget(file, block, old)`: it leaves this file, moves to the archive whole, and **never comes back**. Use it when `大事记` is full and a new entry must replace an old one; if the new entry matters less, `ml_add(file="archive/大事记-归档.md")` instead and leave 大事记 untouched.
+- Retire an entry (not the same as removing) → `ml_forget(file, block, old)`: it leaves this file, moves to the archive whole, and **never comes back**. Use it when `大事记` is over its entry cap and a new entry must replace an old one; if the new entry matters less, `ml_add(file="archive/大事记-归档.md")` instead and leave 大事记 untouched.
+- Over the cap is not an emergency: the receipt tells you by how much. **If you have no time now, `alarm_set` in 30 minutes**, but never skip recording something just because "I will tidy later".
 
-One thing per entry, 600 characters at most. A refusal does not leave you guessing: the receipt repeats the block's first few entries, or the blocks this file has. Each tool re-parses the file and checks its write before saving.
+One thing per entry, 600 characters at most. **Compress as you write**: what you keep is the feeling and the detail, not a log. A refusal does not leave you guessing: the receipt repeats the block's first few entries, or the blocks this file has. Each tool re-parses the file and checks its write before saving.
 
 ### Tidying the memory
 

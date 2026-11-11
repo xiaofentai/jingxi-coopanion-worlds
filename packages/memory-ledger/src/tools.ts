@@ -10,7 +10,8 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameS
 import { basename, dirname, join } from 'node:path';
 import type { ToolDef } from 'cortico/core/types.ts';
 import { audit, auditLines, folderOf, readDoc, readRuleDocs } from './audit.ts';
-import { DEFAULT_ARCHIVE_FILE, DEFAULT_CAP_FILE, DEFAULT_TODAY_FILE } from './config.ts';
+import { parseRules } from './board.ts';
+import { DEFAULT_ARCHIVE_FILE, DEFAULT_TODAY_FILE } from './config.ts';
 import { parseDoc, type Doc } from './parse.ts';
 import { appendBullets, appendRawLines, deleteInBlock, editInBlock, ensureDayBlock, ensureMonthBlock, findBlocks, handleOf, moveBlock, regionsOf } from './write.ts';
 
@@ -39,10 +40,6 @@ export interface LedgerToolOptions {
   todayFile: () => string;
   /** `ml_forget` 不写 `to` 时归档到哪一份；空表示 `DEFAULT_ARCHIVE_FILE`。 */
   archiveFile: () => string;
-  /** 有上限的那一份；空表示 `DEFAULT_CAP_FILE`。 */
-  capFile: () => string;
-  /** 上限字数；0 表示不限。 */
-  capChars: () => number;
 }
 
 type Args = Record<string, unknown>;
@@ -103,6 +100,14 @@ function todayFileOf(opts: LedgerToolOptions): string {
   return opts.todayFile().trim() || DEFAULT_TODAY_FILE;
 }
 
+/** 这份文件的条目上限：来自它自己的规则（catalog 第 4 段），没有就是 0（不管）。 */
+function entryCapOf(rules: string, rel: string): number {
+  for (const rule of parseRules(rules).rules) {
+    if (rule.path === rel && rule.mode === 'catalog' && rule.maxChars > 0) return rule.maxChars;
+  }
+  return 0;
+}
+
 /** 体检：每份几块、日期到哪、缺哪天。 */
 function check(opts: LedgerToolOptions): string {
   const today = opts.today();
@@ -140,10 +145,11 @@ function add(args: Args, opts: LedgerToolOptions): string {
 
   const before = parseDoc(fresh ? '# 归档\n' : readText(file), rel, year);
 
-  // 闸门：满了不写，把两条路和「现在有什么」一起给回去，她当场就能选
-  const capRel = opts.capFile().trim() || DEFAULT_CAP_FILE;
-  const capChars = opts.capChars();
-  if (capChars > 0 && rel === capRel && before.text.length >= capChars) {
+  // 条目闸门：上限来自这份文件自己的规则（catalog 的第 4 段）。超两倍才拒绝写入，
+  // 两倍以内照写、只在回执里报账——卡片不靠「丢」来腾地方。
+  const entryCap = entryCapOf(opts.rules(), rel);
+  const entriesBefore = entriesCount(before);
+  if (entryCap > 0 && entriesBefore >= entryCap * 2) {
     const archive = archiveRel;
     const brief = before.blocks.slice(0, 6).map((item) => `${handleOf(item)}（${item.entries.length} 条）`).join('、');
     const oldest = before.blocks.find((item) => item.kind !== 'special');
@@ -152,7 +158,7 @@ function add(args: Args, opts: LedgerToolOptions): string {
         + oldest.entries.slice(0, 3).map((entry) => `- ${entry.text.slice(0, 60)}`).join('\n')
       : '';
     return [
-      `（${rel} 已满：${before.text.length}／${capChars} 字，这一条没有写进去。）`,
+      `（${rel} 已经 ${entriesBefore} 条，超过 ${entryCap} 的两倍，这一条没有写进去——先整理。）`,
       '两条路：',
       `① 换掉一条 → ml_forget(file="${rel}", block=…, old=…) 再 ml_add`,
       `② 这条不如旧的 → ml_add(file="${archive}", …)：同样记下来，只进归档、不进前缀，${rel} 一个字不动`,
@@ -172,8 +178,7 @@ function add(args: Args, opts: LedgerToolOptions): string {
 
   // 核对：只多一条，块数最多多一个
   const after = parseDoc(added.text, rel, year);
-  const entriesBefore = before.blocks.reduce((n, b) => n + b.entries.length, 0);
-  const entriesAfter = after.blocks.reduce((n, b) => n + b.entries.length, 0);
+  const entriesAfter = entriesCount(after);
   if (entriesAfter !== entriesBefore + 1) {
     return `（核对不通过：条目 ${entriesBefore} → ${entriesAfter}，没有写盘。）`;
   }
@@ -187,6 +192,9 @@ function add(args: Args, opts: LedgerToolOptions): string {
   if (created.created) lines.push(`（新建了「${block}」这一块）`);
   if (first) lines.push('（写在块首——这一行就是这一天的「一句话」）');
   if (fresh) lines.push(`（${rel} 原来没有，这次建起来了）`);
+  if (entryCap > 0 && entriesAfter > entryCap) {
+    lines.push(`（${rel} 现在 ${entriesAfter} 条，超过上限 ${entryCap}：整理时挑最旧的几条 ml_forget 到归档。没空就 alarm_set 30 分钟后提醒自己。）`);
+  }
   if (again.length) {
     const known = new Set(readRuleDocs(folder, opts.rules(), year).flatMap(({ doc }) => doc.blocks.map(handleOf)));
     const unknown = again.filter((piece) => ![...known].some((id) => id.endsWith(piece)));
@@ -464,8 +472,6 @@ export function ledgerFor(
   today: string,
   todayFile = DEFAULT_TODAY_FILE,
   archiveFile = DEFAULT_ARCHIVE_FILE,
-  capFile = DEFAULT_CAP_FILE,
-  capChars = 0,
 ): LedgerToolOptions {
   return {
     folder: () => folderOf('', folder),
@@ -474,7 +480,5 @@ export function ledgerFor(
     today: () => today,
     todayFile: () => todayFile,
     archiveFile: () => archiveFile,
-    capFile: () => capFile,
-    capChars: () => capChars,
   };
 }

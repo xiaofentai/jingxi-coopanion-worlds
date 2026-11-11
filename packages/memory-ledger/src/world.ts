@@ -12,7 +12,7 @@ import { isLanguage } from 'cortico/core/language.ts';
 import type { ToolDef, World, WorldHost, WorldWebUiDecl } from 'cortico/core/types.ts';
 import { buildBoard } from './board.ts';
 import { ensureArchiveFile } from './archive.ts';
-import { DEFAULT_CAP_CHARS, MEMORY_LEDGER_ID, memoryLedgerConfigGroup, rulesText, splitList, type MemoryLedgerConfigSection } from './config.ts';
+import { MEMORY_LEDGER_ID, memoryLedgerConfigGroup, rulesText, splitList, type MemoryLedgerConfigSection } from './config.ts';
 import { PROMPT_VARS, memoryLedgerText, textLanguage, type TextLanguage } from './text.ts';
 import { createLedgerTools } from './tools.ts';
 
@@ -77,7 +77,6 @@ export class MemoryLedgerWorld implements World {
     const result = buildBoard({
       folder: this.boardFolder(),
       rules: rulesText(this.cfg),
-      totalChars: Math.max(0, this.cfg.totalChars),
       listOthers: this.cfg.listOthers,
       listMax: Math.max(0, this.cfg.listMax),
       exclude: splitList(this.cfg.exclude),
@@ -85,7 +84,7 @@ export class MemoryLedgerWorld implements World {
       today: today(this.opts.timezone),
       language: textLanguage(this.language),
     });
-    return { 'ml.meta': result.meta, 'ml.card': result.card, 'ml.index': result.index };
+    return { 'ml.meta': result.meta, 'ml.card': result.card, 'ml.index': result.index, 'ml.policy': result.policy };
   }
 
   /** 写入口：只碰块，不碰行；每次调用现读文件，所以配置改了不用重启。 */
@@ -97,12 +96,6 @@ export class MemoryLedgerWorld implements World {
       today: () => today(this.opts.timezone),
       todayFile: () => this.cfg.todayFile ?? '',
       archiveFile: () => this.cfg.archiveFile ?? '',
-      capFile: () => this.cfg.capFile ?? '',
-      // 老配置里没有这一项时用默认值（闸门默认是开的），显式填 0 才是关掉
-      capChars: () => {
-        const raw = this.cfg.capChars;
-        return typeof raw === 'number' && Number.isFinite(raw) ? Math.max(0, Math.trunc(raw)) : DEFAULT_CAP_CHARS;
-      },
     });
   }
 
