@@ -201,6 +201,40 @@ test('ml_rename 找不到块时不动盘', () => {
   });
 });
 
+test('ml_check 报出首行不合格的块（抄流水第一条的那种）', () => {
+  // 只有 catalog 会把首行搬进目录，所以规则要写成 catalog
+  sandbox((box) => {
+    const receipt = box.run('ml_check', {});
+    // 11-09 是「18:00 …」、11-10 是「13:00 …」；「还挂着」是合格的
+    assert.match(receipt, /该整理 2 处/);
+    assert.match(receipt, /11-09」：首行以 18:00 开头/);
+    assert.match(receipt, /11-10」：首行以 13:00 开头/);
+    assert.ok(!receipt.includes('还挂着」：首行'));
+  }, '超近期.md', '超近期.md|catalog|7|');
+});
+
+test('ml_check 报出窗口外的天', () => {
+  sandbox((box) => {
+    const receipt = box.run('ml_check', {});
+    assert.match(receipt, /11-09」：已第 2 天（窗口 1 天）：该搬到下一份/);
+    assert.ok(!receipt.includes('11-10」：已第'));
+  }, '超近期.md', '超近期.md|catalog|1|');
+});
+
+test('ml_check 报出条目超额的那一份', () => {
+  sandbox((box) => {
+    const receipt = box.run('ml_check', {});
+    // 大事记 有 10-14 / 10-20 / 11-01 共 3 条，上限 2
+    assert.match(receipt, /大事记\.md「（整份）」：共 3 条，超过上限 2/);
+  }, '超近期.md', '超近期.md|whole||7000; 大事记.md|catalog||2');
+});
+
+test('ml_check 没有要整理的就直说没有', () => {
+  sandbox((box) => {
+    assert.match(box.run('ml_check', {}), /该整理：没有/);
+  }, '超近期.md', '');
+});
+
 /** 大事记 的上限写在它自己的规则里：catalog 的第 4 段是条目数。 */
 const RULES_CAP = `${RULES}; 大事记.md|catalog||2`;
 

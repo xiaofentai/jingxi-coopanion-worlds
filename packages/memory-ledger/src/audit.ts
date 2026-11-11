@@ -27,11 +27,30 @@ export interface FileReport {
   special: string[];
 }
 
+/** 一处待整理：哪一份、哪一块、为什么。 */
+export interface TidyItem {
+  file: string;
+  handle: string;
+  reason: string;
+}
+
 export interface AuditReport {
   files: FileReport[];
   /** 所有日块合起来的覆盖：缺哪天、哪天重。 */
   missing: string[];
   duplicates: Array<{ date: string; files: string[] }>;
+  /** 待整理清单：首行不合格、超窗口、条目超额。**只进 `ml_check` 的回执，不进前缀。** */
+  tidy: TidyItem[];
+}
+
+/** 目录一行留多少字；首行超过它，目录里就会被截成半句。 */
+export const FIRST_LINE_MAX = 40;
+
+/** 两个 `YYYY-MM-DD` 相差几天。 */
+function daysBetween(from: string, to: string): number {
+  const at = Date.UTC(...(from.split('-').map(Number) as [number, number, number]));
+  const bt = Date.UTC(...(to.split('-').map(Number) as [number, number, number]));
+  return Math.round((bt - at) / 86_400_000);
 }
 
 /** 目录里的路径；绝对路径或越界返回 null。 */
@@ -90,7 +109,52 @@ export function audit(folder: string, rules: string, today: string, year = Numbe
     };
   });
   const cover = coverOf(docs.map(({ doc }) => doc), today);
-  return { files, missing: cover.missing, duplicates: cover.duplicates };
+  return { files, missing: cover.missing, duplicates: cover.duplicates, tidy: tidyOf(docs, today) };
+}
+
+/**
+ * 该整理什么：块的首行不合格、天在窗口外、条目超了上限。
+ *
+ * 只算账、不动手，也不进前缀——她要整理时调一次 `ml_check` 就够了。
+ * 首行那两条是最要紧的：目录直接取首行，`13:00 生态箱报错` 这种抄流水的东西
+ * 会原样变成目录里的一行，看着像有条目，其实什么都没说。
+ */
+function tidyOf(docs: Array<{ rule: Rule; doc: Doc }>, today: string): TidyItem[] {
+  const out: TidyItem[] = [];
+  for (const { rule, doc } of docs) {
+    const catalog = rule.mode === 'catalog';
+    const window = catalog ? Number.parseInt(rule.arg.trim(), 10) : 0;
+    const cap = catalog ? rule.maxChars : 0;
+
+    if (cap > 0) {
+      const total = doc.blocks.reduce((n, block) => n + block.entries.length, 0);
+      if (total > cap) out.push({ file: doc.path, handle: '（整份）', reason: `共 ${total} 条，超过上限 ${cap}：挑最旧的几条 ml_forget 进归档` });
+    }
+
+    // 只有 catalog 会把「块的首行」搬进目录；常驻 / 偏好 / 记忆 的首行没人看，不该报
+    if (!catalog) continue;
+
+    for (const block of doc.blocks) {
+      const handle = handleOf(block);
+      const first = block.entries[0];
+      if (!first) {
+        out.push({ file: doc.path, handle, reason: '块里一条都没有，目录里只有个日期' });
+        continue;
+      }
+      const text = first.text.trim();
+      const clock = /^\d{1,2}:\d{2}/.exec(text);
+      if (clock) {
+        out.push({ file: doc.path, handle, reason: `首行以 ${clock[0]} 开头——这是流水第一条，不是这一天的一句话` });
+      } else if (text.length > FIRST_LINE_MAX) {
+        out.push({ file: doc.path, handle, reason: `首行 ${text.length} 字，超过 ${FIRST_LINE_MAX}：目录里会被截成半句` });
+      }
+      if (Number.isFinite(window) && window > 0 && block.kind === 'day' && block.date) {
+        const age = daysBetween(block.date, today);
+        if (age >= window) out.push({ file: doc.path, handle, reason: `已第 ${age + 1} 天（窗口 ${window} 天）：该搬到下一份` });
+      }
+    }
+  }
+  return out;
 }
 
 /** 一行一份，供工具回执与脚本共用。 */
@@ -108,6 +172,14 @@ export function auditLines(report: AuditReport, today: string): string[] {
   for (const dup of report.duplicates) {
     lines.push(`重复：${dup.date.slice(5)} 同时出现在 ${dup.files.join(' 与 ')}`);
   }
+  if (!report.tidy.length) {
+    lines.push('该整理：没有');
+    return lines;
+  }
+  const shown = report.tidy.slice(0, 12);
+  lines.push(`该整理 ${report.tidy.length} 处：`);
+  for (const item of shown) lines.push(`  - ${item.file}「${item.handle}」：${item.reason}`);
+  if (report.tidy.length > shown.length) lines.push(`  - 另有 ${report.tidy.length - shown.length} 处`);
   return lines;
 }
 

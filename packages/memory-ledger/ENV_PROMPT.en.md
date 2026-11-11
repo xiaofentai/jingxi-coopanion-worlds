@@ -36,6 +36,6 @@ One thing per entry, 600 characters at most. **Compress as you write**: what you
 
 ### Tidying the memory
 
-1. Run `ml_check` first: gaps, and days that sit in two files.
+1. Run `ml_check` first: one pass gives three things — gaps, days that sit in two files, and a **to-tidy list** (blocks whose first line starts with a clock time, days already past their window, files over their entry cap). Every line on that list is directly actionable.
 2. To move a whole day into another file, use `ml_move(from, block, to)`. **Do not move blocks with `move_file` by line range** — one line off and the next day's opening goes with it.
 3. One thing at a time, then report: which blocks moved, how many characters each, and the block headings both files now have.
