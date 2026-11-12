@@ -5,7 +5,7 @@
  */
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
-import { coverOf } from './board.ts';
+import { coverOf, SOFT_RATIO } from './board.ts';
 import { parseRules, type Rule } from './board.ts';
 import { dayDates, parseDoc, type Doc } from './parse.ts';
 import { handleOf } from './write.ts';
@@ -112,8 +112,21 @@ export function audit(folder: string, rules: string, today: string, year = Numbe
   return { files, missing: cover.missing, duplicates: cover.duplicates, tidy: tidyOf(docs, today) };
 }
 
+/** 这条规则实际会往卡上放多少字。`catalog` 按条目算、`newest` 类按块算，都返回 -1 表示不算字数。 */
+function cardCharsOf(rule: Rule, doc: Doc): number {
+  if (rule.mode === 'newest' || rule.mode === 'newest+pin' || rule.mode === 'catalog') return -1;
+  if (rule.mode === 'marker') {
+    const marker = rule.arg.trim();
+    if (!marker) return doc.text.trim().length;
+    const lines = doc.text.split('\n');
+    const at = lines.findIndex((line) => line.trimStart().startsWith(marker));
+    return (at < 0 ? doc.text : lines.slice(0, at).join('\n')).trim().length;
+  }
+  return doc.text.trim().length;
+}
+
 /**
- * 该整理什么：块的首行不合格、天在窗口外、条目超了上限。
+ * 该整理什么：块的首行不合格、天在窗口外、用量到了上限的 80%。
  *
  * 只算账、不动手，也不进前缀——她要整理时调一次 `ml_check` 就够了。
  * 首行那两条是最要紧的：目录直接取首行，`13:00 生态箱报错` 这种抄流水的东西
@@ -122,14 +135,22 @@ export function audit(folder: string, rules: string, today: string, year = Numbe
 function tidyOf(docs: Array<{ rule: Rule; doc: Doc }>, today: string): TidyItem[] {
   const out: TidyItem[] = [];
   for (const { rule, doc } of docs) {
+    // 用量到上限的 80% 就提醒（软限）：不拦写入，只进「该整理的」。
+    // 单位随模式：目录 / full 数条目，整份 / marker 数字数。
+    if (rule.maxChars > 0) {
+      const byEntries = rule.mode === 'catalog' || rule.mode === 'full';
+      const usage = byEntries ? doc.blocks.reduce((n, block) => n + block.entries.length, 0) : cardCharsOf(rule, doc);
+      if (usage >= 0 && usage >= rule.maxChars * SOFT_RATIO) {
+        const unit = byEntries ? '条' : '字';
+        out.push({
+          file: doc.path,
+          handle: '（整份）',
+          reason: `已到 ${usage}/${rule.maxChars} ${unit}（${Math.round((usage / rule.maxChars) * 100)}%）：该压一压或替换掉一些`,
+        });
+      }
+    }
     const catalog = rule.mode === 'catalog';
     const window = catalog ? Number.parseInt(rule.arg.trim(), 10) : 0;
-    const cap = catalog ? rule.maxChars : 0;
-
-    if (cap > 0) {
-      const total = doc.blocks.reduce((n, block) => n + block.entries.length, 0);
-      if (total > cap) out.push({ file: doc.path, handle: '（整份）', reason: `共 ${total} 条，超过上限 ${cap}：挑最旧的几条 ml_forget 进归档` });
-    }
 
     // 只有 catalog 会把「块的首行」搬进目录；常驻 / 偏好 / 记忆 的首行没人看，不该报
     if (!catalog) continue;

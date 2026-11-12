@@ -201,12 +201,33 @@ test('catalog 全部上卡：窗口外的天也留在卡上，只是报进「该
   });
 });
 
-test('catalog 条目超额进「该整理的」，卡上一行不少', () => {
+test('条目到上限的 80% 就进「该整理的」，卡上一行不少', () => {
   const body = '## 2026-11\n- 甲\n- 乙\n- 丙\n';
   withFolder({ '大事记.md': body }, (folder) => {
     const result = board(folder, '大事记.md|catalog||2', '2026-11-06');
     assert.match(result.card, /2026-11 甲/);
-    assert.match(result.card, /共 3 条（上限 2）/);
+    assert.match(result.card, /已到 3\/2 条（150%）/);
+    assert.match(result.meta, /该整理 1 处/);
+  });
+});
+
+test('full 整份上卡，一个字不截断', () => {
+  const body = `## 2026-11\n- ${'长'.repeat(3000)}\n`;
+  withFolder({ '大事记.md': body }, (folder) => {
+    const result = board(folder, '大事记.md|full||120', '2026-11-06');
+    assert.ok(result.card.includes('长'.repeat(3000)), '全文都在');
+    assert.doesNotMatch(result.card, /已截断/);
+  });
+});
+
+test('full 的第四段是条目数：到 80% 报账，但内容全在', () => {
+  const body = ['## 2026-11', '- 甲', '- 乙', '- 丙', '- 丁', ''].join('\n');
+  withFolder({ '大事记.md': body }, (folder) => {
+    const result = board(folder, '大事记.md|full||5', '2026-11-06');
+    // 四条全在卡上
+    for (const line of ['- 甲', '- 乙', '- 丙', '- 丁']) assert.ok(result.card.includes(line), line);
+    assert.match(result.card, /已到 4\/5 条（80%）/);
+    // 满额不报（还没到 100%），但 80% 已经报了，所以这里只验 80%
     assert.match(result.meta, /该整理 1 处/);
   });
 });

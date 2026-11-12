@@ -28,7 +28,7 @@ const ZH = {
     recallOnSpeak: { title: '开口前召回', description: '打开后，前缀里会多一句「打算开口时先 ml_recall」。用来测她会不会真的在开口前查——**这不是常态，是实验**。改完要重启才生效。' },
     rule: {
       title: (n: number) => `规则 ${n}`,
-      description: '路径|模式|参数|提醒线（catalog 是条目上限）。whole 整份、marker 取到某标题之前、newest 最新几块、newest+pin 再带上某块：这几种**一律不截断**，第四段只是「超过这么多字就提一句」的提醒线，留空不提醒。catalog 每块只出一行、全部上卡，「参数」= 保留几天、「上限」= 最多几条（同样只报账，不裁剪）。例：常驻.md|whole||1600 ／ 超近期.md|catalog|4| ／ 大事记.md|catalog||120',
+      description: '路径|模式|参数|上限。整体上卡的有三种：whole 整份、full 整份、marker 取到某标题之前（都不截断）。其中 whole / marker 的第四段是**字数**提醒线，`full` 的第四段是**条目上限**。catalog 每块只出一行、全部上卡，「参数」= 保留几天、「上限」= 条目上限。条目上限一律按 80% 开始提醒、到 100% 拒绝写入。例：常驻.md|whole||1600 ／ 大事记.md|full||120 ／ 超近期.md|catalog|4|',
       more: '同上；留空表示这一槽不用。',
     },
     extraRules: { title: '更多规则', description: '分号分隔，格式同上。' },
@@ -63,7 +63,7 @@ const EN = {
     recallOnSpeak: { title: 'Recall before speaking', description: 'When on, the prefix gains one line telling her to run `ml_recall` before she speaks. This is an experiment, not the default. Takes a restart.' },
     rule: {
       title: (n: number) => `Rule ${n}`,
-      description: 'path|mode|argument|reminder line (for catalog it is the entry cap). whole, marker, newest, newest+pin are **never truncated**: the fourth field only prints a reminder once the text runs past it; leave it empty for no reminder. catalog: one line per block, everything on the board; the argument is the day window and the fourth field is the entry cap (again only reported, never enforced by dropping). Example: 常驻.md|whole||1600 ／ 超近期.md|catalog|4| ／ 大事记.md|catalog||120',
+      description: 'path|mode|argument|limit. Three modes put the file on the board whole: whole, full, marker (none of them truncate). For whole / marker the fourth field is a **character** reminder line; for `full` it is the **entry cap**. catalog prints one line per block, everything on the board: the argument is the day window, the fourth field the entry cap. Entry caps start reporting at 80% and refuse writes at 100%. Example: 常驻.md|whole||1600 ／ 大事记.md|full||120 ／ 超近期.md|catalog|4|',
       more: 'Same as above; leave empty to skip this slot.',
     },
     extraRules: { title: 'More rules', description: 'Separated by semicolons, same format.' },

@@ -10,10 +10,11 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { dayDates, parseDoc, shiftDate, type Doc } from './parse.ts';
 
 /**
- * `whole` 整份；`marker` 取到某个标题之前；`newest` 取日期最新的几块；
+ * `whole` 整份（有字数上限，超了截断）；`full` 整份**不截断**，只靠条目数兜住；
+ * `marker` 取到某个标题之前；`newest` 取日期最新的几块；
  * `newest+pin` 再固定带上某几块；`catalog` 每个日期块只出一行（标题 + 首行）。
  */
-export type RuleMode = 'whole' | 'marker' | 'newest' | 'newest+pin' | 'catalog';
+export type RuleMode = 'whole' | 'full' | 'marker' | 'newest' | 'newest+pin' | 'catalog';
 /** 超过字数上限时切哪一头：`tail` 断尾（留开头，默认）；`head` 截头（留结尾）。 */
 export type Cut = 'head' | 'tail';
 
@@ -72,7 +73,13 @@ export interface BoardResult {
   cover: CoverReport;
 }
 
-const MODES: readonly RuleMode[] = ['whole', 'marker', 'newest', 'newest+pin', 'catalog'];
+const MODES: readonly RuleMode[] = ['whole', 'full', 'marker', 'newest', 'newest+pin', 'catalog'];
+
+/** 用量到上限的这个比例就提醒（软限）：不拦写入，只进「该整理的」。 */
+export const SOFT_RATIO = 0.8;
+
+/** 第四段按「字数」解释的模式；`catalog` / `full` 的第四段是条目数。 */
+const BY_CHARS: readonly RuleMode[] = ['whole', 'marker', 'newest', 'newest+pin'];
 
 /** `catalog` 每行留多少字：够写一句「这一天」，又不至于吃掉下一天。 */
 const CATALOG_LINE = 40;
@@ -343,7 +350,10 @@ function dueOf(rule: Rule, doc: Doc, today: string, entries: number): string[] {
       if (age >= window) out.push(`${handleOfBlock(block)} 已第 ${age + 1} 天（窗口 ${window} 天），${block.heading.length + 1 + block.body.length} 字`);
     }
   }
-  if (rule.maxChars > 0 && entries > rule.maxChars) out.push(`共 ${entries} 条（上限 ${rule.maxChars}）`);
+  // 条目数到上限的 80% 就报账（软限）：不裁剪，只提醒该压一压
+  if (rule.maxChars > 0 && entries >= rule.maxChars * SOFT_RATIO) {
+    out.push(`已到 ${entries}/${rule.maxChars} 条（${Math.round((entries / rule.maxChars) * 100)}%）：该压一压或替换掉一些`);
+  }
   return out;
 }
 
@@ -354,7 +364,9 @@ function handleOfBlock(block: Block): string {
 }
 
 function pick(doc: Doc, rule: Rule): Picked {
-  if (rule.mode === 'whole') return { ...whole(doc.text), blocks: 0 };
+  // full 和 whole 在「怎么取」上一样（整份、不截断），区别只在第 4 段怎么解释：
+  // whole 是字数提醒线，full 是条目数上限（见 audit.ts / tools.ts）。
+  if (rule.mode === 'whole' || rule.mode === 'full') return { ...whole(doc.text), blocks: 0 };
   if (rule.mode === 'catalog') return catalogOf(doc);
   if (rule.mode === 'marker') {
     const marker = rule.arg.trim();
@@ -488,10 +500,13 @@ function policyOf(rules: readonly Rule[], language: 'zh' | 'en'): string {
   const t = TEXT[language];
   const parts: string[] = [];
   for (const rule of rules) {
-    if (rule.mode !== 'catalog') continue;
-    const days = Number.parseInt(rule.arg.trim(), 10);
-    if (Number.isFinite(days) && days > 0) parts.push(t.policyDays(rule.path, days));
-    if (rule.maxChars > 0) parts.push(t.policyCap(rule.path, rule.maxChars));
+    if (rule.mode === 'catalog') {
+      const days = Number.parseInt(rule.arg.trim(), 10);
+      if (Number.isFinite(days) && days > 0) parts.push(t.policyDays(rule.path, days));
+    }
+    if ((rule.mode === 'catalog' || rule.mode === 'full') && rule.maxChars > 0) {
+      parts.push(t.policyCap(rule.path, rule.maxChars));
+    }
   }
   return t.policyLine(parts, parts.length === 0);
 }
@@ -547,17 +562,18 @@ export function buildBoard(input: BoardInput): BoardResult {
         picked.text,
         ...(picked.note === 'no-marker' ? ['', t.noMarker(rule.arg)] : []),
         ...(picked.dropped ? ['', t.catalogDrop(picked.dropped)] : []),
-        // 第四段现在是「提醒线」：超了照给全文，只提一句（catalog 的第四段是条目数，另算）
-        ...(rule.mode !== 'catalog' && rule.maxChars > 0 && picked.text.length > rule.maxChars
+        // 第四段在 whole / marker 下是「提醒线」：超了照给全文，只提一句。
+        // catalog 和 full 的第四段是条目数，由 audit.ts 按 80% 报账，不走这里。
+        ...(BY_CHARS.includes(rule.mode) && rule.maxChars > 0 && picked.text.length > rule.maxChars
           ? ['', t.overLong(rule.path, picked.text.length, rule.maxChars)]
           : []),
       ].join('\n');
-      if (rule.mode !== 'catalog' && rule.maxChars > 0 && picked.text.length > rule.maxChars) long += 1;
+      if (BY_CHARS.includes(rule.mode) && rule.maxChars > 0 && picked.text.length > rule.maxChars) long += 1;
       chars += section.length;
       sections.push(section);
       for (const block of picked.omitted ?? []) omitted.push({ file: rule.path, ...block });
-      // 目录只算账、不剪卡：窗口外的天与超额条目进「该整理的」
-      if (rule.mode === 'catalog') {
+      // 目录与 full 只算账、不剪卡：窗口外的天与到 80% 的条目进「该整理的」
+      if (rule.mode === 'catalog' || rule.mode === 'full') {
         const entries = read.doc.blocks.reduce((n, block) => n + block.entries.length, 0);
         for (const text of dueOf(rule, read.doc, input.today, entries)) due.push({ file: rule.path, text });
       }
