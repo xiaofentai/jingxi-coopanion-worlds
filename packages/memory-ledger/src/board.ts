@@ -295,7 +295,9 @@ function catalogRows(doc: Doc): Array<{ block: Block; line: string; chars: numbe
     const first = block.body.split('\n').map((line) => line.trim()).find(Boolean) ?? '';
     const flat = first.replace(/^[-*]\s+/, '').replace(/\s+/g, ' ').trim();
     const clipped = flat.length > CATALOG_LINE ? `${flat.slice(0, CATALOG_LINE)}…` : flat;
-    return { block, line: clipped ? `${handle} ${clipped}` : handle, chars: block.heading.length + 1 + block.body.length };
+    // 月块只占一行，藏着的那些条目得有个量感——不然「11 月」看着像只有一件事
+    const count = block.kind === 'month' ? `（${block.entries.length} 件）` : '';
+    return { block, line: clipped ? `${handle} ${clipped}${count}` : `${handle}${count}`, chars: block.heading.length + 1 + block.body.length };
   });
 }
 

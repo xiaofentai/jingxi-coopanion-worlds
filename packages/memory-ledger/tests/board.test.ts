@@ -211,6 +211,17 @@ test('catalog 条目超额进「该整理的」，卡上一行不少', () => {
   });
 });
 
+test('月块那一行带条数：藏着的那些得有个量感', () => {
+  const body = '## 2026-11\n- 甲\n- 乙\n- 丙\n\n## 11-05\n- 丁\n';
+  withFolder({ '大事记.md': body }, (folder) => {
+    const result = board(folder, '大事记.md|catalog||', '2026-11-06');
+    assert.match(result.card, /2026-11 甲（3 件）/);
+    // 日块不加条数
+    assert.match(result.card, /11-05 丁/);
+    assert.ok(!result.card.includes('11-05 丁（'));
+  });
+});
+
 test('catalog 让某一天写很长，也只占一行，不挤掉别天', () => {
   const short = '## 11-08\n- 甲\n\n## 11-09\n- 乙\n\n## 11-10\n- 丙\n';
   const long = `## 11-08\n- 甲\n\n## 11-09\n- ${'乙'.repeat(3000)}\n\n## 11-10\n- 丙\n`;
