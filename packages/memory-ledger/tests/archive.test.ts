@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { ensureArchiveFile, landingSpot } from '../src/archive.ts';
+import { archivedDates, ensureArchiveFile, landingSpot } from '../src/archive.ts';
 
 function withTmp(run: (root: string) => void): () => void {
   return () => {
@@ -51,4 +51,19 @@ test('目录不可写时不抛异常，只是返回 null', withTmp((root) => {
   // 把 archive 做成一个文件，mkdir 必然失败
   writeFileSync(join(root, 'archive'), 'not a directory', 'utf8');
   assert.equal(ensureArchiveFile(root, ''), null);
+}));
+
+test('archivedDates 只认块标题里的日期，正文里的不算', withTmp((root) => {
+  mkdirSync(join(root, 'archive'), { recursive: true });
+  writeFileSync(
+    join(root, 'archive', '流水.md'),
+    '# 归档\n\n## 11-05\n- 那天提到 11-09 的事，但标题是 11-05\n\n## 2026-10-14\n- 月块和日块混着\n',
+    'utf8',
+  );
+  const dates = archivedDates(root, 'archive/流水.md', 2026).sort();
+  assert.deepEqual(dates, ['2026-10-14', '2026-11-05']);
+}));
+
+test('归档目录不存在时返回空数组，不抛异常', withTmp((root) => {
+  assert.deepEqual(archivedDates(root, 'archive/流水.md', 2026), []);
 }));

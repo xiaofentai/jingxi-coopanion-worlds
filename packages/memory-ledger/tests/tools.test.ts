@@ -306,6 +306,38 @@ test('上限只管写了条目规则的那一份；没写规则的照写不误',
   }, '超近期.md', RULES_CAP);
 });
 
+test('往月块补写旧日子：按日期插，不跑到块尾', () => {
+  sandbox((box) => {
+    // 2026-10 现有 **10-14**、**10-20**，补一条 10-16
+    box.run('ml_add', { file: '大事记.md', block: '2026-10', text: '**10-16**：能动性装上。' });
+    const after = box.read('大事记.md');
+    const at14 = after.indexOf('**10-14**');
+    const at16 = after.indexOf('**10-16**');
+    const at20 = after.indexOf('**10-20**');
+    assert.ok(at14 < at16 && at16 < at20, `顺序应是 14 → 16 → 20，实际 ${at14} / ${at16} / ${at20}`);
+  });
+});
+
+test('往月块写比所有条目都晚的日子，还是追加到末尾', () => {
+  sandbox((box) => {
+    box.run('ml_add', { file: '大事记.md', block: '2026-11', text: '**11-20**：后来的一天。' });
+    const after = box.read('大事记.md');
+    assert.ok(after.indexOf('**11-01**') < after.indexOf('**11-20**'));
+  });
+});
+
+test('块首那句「这个月的一句话」不参与排序，永远在最前', () => {
+  sandbox((box) => {
+    box.run('ml_add', { file: '大事记.md', block: '2026-10', text: '10 月：换了个模型。', first: true });
+    box.run('ml_add', { file: '大事记.md', block: '2026-10', text: '**10-12**：更早的一天。' });
+    const after = box.read('大事记.md');
+    const summary = after.indexOf('10 月：换了个模型。');
+    const at12 = after.indexOf('**10-12**');
+    const at14 = after.indexOf('**10-14**');
+    assert.ok(summary < at12 && at12 < at14, `顺序应是 摘要 → 12 → 14，实际 ${summary} / ${at12} / ${at14}`);
+  });
+});
+
 test('ml_move 整块搬走，源里一天不少', () => {
   sandbox((box) => {
     const receipt = box.run('ml_move', { from: '超近期.md', block: '11-09', to: '近期.md' });

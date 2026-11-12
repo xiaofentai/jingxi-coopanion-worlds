@@ -83,6 +83,7 @@ export class MemoryLedgerWorld implements World {
       stamp: stamp(this.opts.timezone),
       today: today(this.opts.timezone),
       language: textLanguage(this.language),
+      archiveFile: this.cfg.archiveFile ?? '',
     });
     // 开口前召回是实验项：开关关着时这个变量是空串，模板里那一行自然消失
     const hint = this.cfg.recallOnSpeak ? memoryLedgerText(textLanguage(this.language)).hintRecall : '';

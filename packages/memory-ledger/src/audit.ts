@@ -5,6 +5,7 @@
  */
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
+import { archivedDates } from './archive.ts';
 import { coverOf, SOFT_RATIO } from './board.ts';
 import { parseRules, type Rule } from './board.ts';
 import { dayDates, parseDoc, type Doc } from './parse.ts';
@@ -88,7 +89,14 @@ export function readRuleDocs(folder: string, rules: string, year: number): Array
   return out;
 }
 
-export function audit(folder: string, rules: string, today: string, year = Number(today.slice(0, 4))): AuditReport {
+export function audit(
+  folder: string,
+  rules: string,
+  today: string,
+  year = Number(today.slice(0, 4)),
+  /** 归档文件的相对路径；给了就把归档里的日期算进覆盖（搬走的天不算缺口）。 */
+  archiveFile = '',
+): AuditReport {
   const docs = readRuleDocs(folder, rules, year);
   const files: FileReport[] = docs.map(({ doc }) => {
     const dates = dayDates(doc);
@@ -108,7 +116,8 @@ export function audit(folder: string, rules: string, today: string, year = Numbe
       special: doc.blocks.filter((block) => block.kind !== 'day').map(handleOf),
     };
   });
-  const cover = coverOf(docs.map(({ doc }) => doc), today);
+  const archived = archiveFile ? archivedDates(folder, archiveFile, year) : [];
+  const cover = coverOf(docs.map(({ doc }) => doc), today, 'zh', archived);
   return { files, missing: cover.missing, duplicates: cover.duplicates, tidy: tidyOf(docs, today) };
 }
 

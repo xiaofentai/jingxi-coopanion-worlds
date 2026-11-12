@@ -10,7 +10,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameS
 import { basename, dirname, join } from 'node:path';
 import type { ToolDef } from 'cortico/core/types.ts';
 import { audit, auditLines, folderOf, readDoc, readRuleDocs } from './audit.ts';
-import { parseRules } from './board.ts';
+import { parseRules, SOFT_RATIO } from './board.ts';
 import { DEFAULT_ARCHIVE_FILE, DEFAULT_TODAY_FILE } from './config.ts';
 import { recall, type RecallHit } from './recall.ts';
 import { parseDoc, type Doc } from './parse.ts';
@@ -154,7 +154,7 @@ function recallTool(args: Args, opts: LedgerToolOptions): string {
 /** 体检：每份几块、日期到哪、缺哪天。 */
 function check(opts: LedgerToolOptions): string {
   const today = opts.today();
-  const report = audit(opts.folder(), opts.rules(), today);
+  const report = audit(opts.folder(), opts.rules(), today, Number(today.slice(0, 4)), opts.archiveFile());
   return auditLines(report, today).join('\n');
 }
 
@@ -236,7 +236,7 @@ function add(args: Args, opts: LedgerToolOptions): string {
   if (first) lines.push('（写在块首——这一行就是这一天的「一句话」）');
   if (fresh) lines.push(`（${rel} 原来没有，这次建起来了）`);
   // 到上限的 80% 就提醒（软限），不拦写入
-  if (entryCap > 0 && entriesAfter >= entryCap * 0.8 && entriesAfter <= entryCap) {
+  if (entryCap > 0 && entriesAfter >= entryCap * SOFT_RATIO && entriesAfter <= entryCap) {
     lines.push(`（${rel} 现在 ${entriesAfter}/${entryCap} 条，到 ${Math.round((entriesAfter / entryCap) * 100)}% 了：整理时挑最旧的几条 ml_forget 到归档。没空就 alarm_set 30 分钟后提醒自己。）`);
   }
   if (again.length) {

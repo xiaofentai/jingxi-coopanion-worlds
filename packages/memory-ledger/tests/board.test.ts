@@ -1,25 +1,30 @@
 import { strict as assert } from 'node:assert';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { buildBoard } from '../src/board.ts';
 
-/** 造一个临时目录，用完删掉。 */
+/** 造一个临时目录，用完删掉。文件名里带 `/` 时会建子目录。 */
 function withFolder(files: Record<string, string>, run: (folder: string) => void): void {
   const folder = mkdtempSync(join(tmpdir(), 'memory-ledger-'));
   try {
-    for (const [name, body] of Object.entries(files)) writeFileSync(join(folder, name), body, 'utf8');
+    for (const [name, body] of Object.entries(files)) {
+      const full = join(folder, name);
+      mkdirSync(dirname(full), { recursive: true });
+      writeFileSync(full, body, 'utf8');
+    }
     run(folder);
   } finally {
     rmSync(folder, { recursive: true, force: true });
   }
 }
 
-function board(folder: string, rules: string, today: string) {
+function board(folder: string, rules: string, today: string, archiveFile = '') {
   return buildBoard({
     folder,
     rules,
+    archiveFile,
     listOthers: false,
     listMax: 8,
     exclude: ['.git'],
@@ -208,6 +213,19 @@ test('条目到上限的 80% 就进「该整理的」，卡上一行不少', () 
     assert.match(result.card, /2026-11 甲/);
     assert.match(result.card, /已到 3\/2 条（150%）/);
     assert.match(result.meta, /该整理 1 处/);
+  });
+});
+
+test('覆盖把归档算进来：中间某天搬走了，不算缺口', () => {
+  const live = '## 11-04\n- 四\n\n## 11-06\n- 六\n';
+  const archive = '## 11-05\n- 五\n';
+  withFolder({ 'a.md': live, 'archive/流水.md': archive }, (folder) => {
+    // 不传归档：11-05 看起来缺了
+    assert.match(board(folder, 'a.md|catalog|30|', '2026-11-06').card, /缺 11-05/);
+    // 传了归档：11-05 是搬走了，不是丢了
+    const withArchive = board(folder, 'a.md|catalog|30|', '2026-11-06', 'archive/流水.md');
+    assert.doesNotMatch(withArchive.card, /缺 11-05/);
+    assert.match(withArchive.card, /没有缺口/);
   });
 });
 

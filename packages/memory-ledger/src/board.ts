@@ -7,6 +7,7 @@
  */
 import { closeSync, existsSync, openSync, readFileSync, readdirSync, readSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { archivedDates } from './archive.ts';
 import { dayDates, parseDoc, shiftDate, type Doc } from './parse.ts';
 
 /**
@@ -39,6 +40,8 @@ export interface BoardInput {
   /** `YYYY-MM-DD`：判覆盖用。 */
   today: string;
   language: 'zh' | 'en';
+  /** 归档文件的相对路径；给了就把归档里的日期算进覆盖（搬走的天不算缺口）。 */
+  archiveFile?: string;
 }
 
 export interface Loaded {
@@ -226,8 +229,15 @@ function readOne(file: string, rel: string): Read | null {
 }
 
 /** 覆盖：所有日块合起来，区间里缺哪天、哪天重复。 */
-export function coverOf(docs: readonly Doc[], today: string, language: 'zh' | 'en' = 'zh'): CoverReport {
+export function coverOf(
+  docs: readonly Doc[],
+  today: string,
+  language: 'zh' | 'en' = 'zh',
+  /** 已经搬进归档的日期：它们不在规则文件里了，但不算缺口。 */
+  archived: readonly string[] = [],
+): CoverReport {
   const t = TEXT[language];
+  const archivedSet = new Set(archived);
   const files = new Map<string, string[]>();
   for (const doc of docs) {
     for (const date of dayDates(doc)) {
@@ -247,7 +257,8 @@ export function coverOf(docs: readonly Doc[], today: string, language: 'zh' | 'e
   const to = latest > today ? latest : today;
   const missing: string[] = [];
   for (let at = from; at <= to; at = shiftDate(at, 1)) {
-    if (!files.has(at)) missing.push(at);
+    // 规则文件里没有、但归档里有 → 那天是搬走了，不是丢了
+    if (!files.has(at) && !archivedSet.has(at)) missing.push(at);
     // 区间超过一年说明日期解析有问题，别无限循环
     if (missing.length > 400) break;
   }
@@ -582,7 +593,10 @@ export function buildBoard(input: BoardInput): BoardResult {
 
     if (!sections.length) notes.push(t.empty);
 
-    const cover = coverOf(docs, input.today, input.language);
+    const archived = input.archiveFile
+      ? archivedDates(folder, input.archiveFile, Number(input.today.slice(0, 4)))
+      : [];
+    const cover = coverOf(docs, input.today, input.language, archived);
     const known = new Set(rules.map((r) => r.path));
     const listing = input.listOthers ? listOthers(folder, input.exclude, known, input.listMax, input.language) : { index: '', others: [] };
     const omittedText = omittedSection(omitted, input.listMax, input.language);

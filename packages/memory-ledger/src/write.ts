@@ -163,11 +163,45 @@ function onlyBlock(doc: Doc, handle: string): Block | { error: string } {
   return { error: found.length ? `「${handle}」匹配到 ${found.length} 块，说不清是哪一块` : `没找到「${handle}」` };
 }
 
-/** 在一个块里追加条目（`first` 时插到块首）；块不存在就报错，不擅自新建。 */
+/** 条目开头的日期头：`**11-02**：` 或 `11-02：`。`11-02 起` 这种不算（那是区间，不是某天）。 */
+const DATE_HEAD = /^\*{0,2}(\d{1,2})-(\d{1,2})\*{0,2}\s*[：:]/;
+
+/**
+ * 月块里该插在哪一行：找第一条比它晚的，插在它前面。
+ * 不带日期头的条目（块首那句「这个月的一句话」）不参与比较，永远留在最前。
+ */
+function insertByDate(block: Block, month: number, day: number): number {
+  const target = month * 100 + day;
+  for (const entry of block.entries) {
+    const hit = DATE_HEAD.exec(entry.text.trim());
+    if (!hit) continue;
+    if (Number(hit[1]) * 100 + Number(hit[2]) > target) return entry.lines[0] - 1;
+  }
+  return -1;
+}
+
+/**
+ * 在一个块里追加条目（`first` 时插到块首）；块不存在就报错，不擅自新建。
+ *
+ * 往**月块**补写带日期的条目时按日期插，不追加到块尾——否则时间轴会断
+ * （11-02 跑到 11-09 后面就是这条缺失造成的）。找不到更晚的就追加，和以前一样。
+ */
 export function appendBullets(doc: Doc, handle: string, bullets: readonly string[], first = false): { text: string } | { error: string } {
   const block = onlyBlock(doc, handle);
   if ('error' in block) return block;
   const chunk = bullets.map((line) => `- ${line.replace(/^[-*]\s+/, '').trim()}`);
+
+  if (!first && block.kind === 'month' && chunk.length === 1) {
+    const hit = DATE_HEAD.exec(chunk[0].replace(/^-\s+/, ''));
+    if (hit) {
+      const at = insertByDate(block, Number(hit[1]), Number(hit[2]));
+      if (at >= 0) {
+        const lines = doc.text.split('\n');
+        return { text: tidy([...lines.slice(0, at), chunk[0], ...lines.slice(at)].join('\n')) };
+      }
+    }
+  }
+
   return { text: spliceInBlock(doc, block, chunk, first) };
 }
 
