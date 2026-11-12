@@ -259,7 +259,26 @@ function add(args: Args, opts: LedgerToolOptions): string {
   return lines.join('\n');
 }
 
-/** 整块搬家；同一天在目标里已有就拒绝。 */
+/** 归档目录名（默认 `archive`），用来判断一段路径是不是归档里的。 */
+function archiveDirOf(opts: LedgerToolOptions): string {
+  const rel = (opts.archiveFile().trim() || DEFAULT_ARCHIVE_FILE).replace(/\\/g, '/');
+  const cut = rel.lastIndexOf('/');
+  return cut > 0 ? rel.slice(0, cut) : '';
+}
+
+/** 这段路径在不在归档目录里。 */
+function inArchive(rel: string, archiveDir: string): boolean {
+  if (!archiveDir) return false;
+  const path = rel.replace(/\\/g, '/');
+  return path === archiveDir || path.startsWith(`${archiveDir}/`);
+}
+
+/**
+ * 整块搬家；同一天在目标里已有就拒绝。
+ *
+ * **归档是单向的**：搬进去可以，搬出来不行。否则「折叠」随时能被撤销，那一层的上限就成了摆设。
+ * 目标是归档里的新文件时自动建（第一次折叠到 `archive/近期-流水.md` 就会遇到）。
+ */
 function move(args: Args, opts: LedgerToolOptions): string {
   const folder = opts.folder();
   const today = opts.today();
@@ -270,9 +289,16 @@ function move(args: Args, opts: LedgerToolOptions): string {
   if (!from || !to || !handle) return '（要写清 from、block、to：从哪份、搬哪一块、搬到哪份。）';
   if (from === to) return '（源和目标是同一份文件。）';
 
+  const archiveDir = archiveDirOf(opts);
+  if (inArchive(from, archiveDir) && !inArchive(to, archiveDir)) {
+    return `（${from} 在归档里，不再搬出来——归档是单向的：可以搬进去，不搬出来。要恢复请人工从备份捞。）`;
+  }
+
   const source = docOf(folder, from, year);
-  const target = docOf(folder, to, year);
   if (!source) return `（读不到 ${from}）`;
+  // 目标是归档里的新文件时先建：折叠第一次落盘必然是新建
+  const target = docOf(folder, to, year)
+    ?? (inArchive(to, archiveDir) ? parseDoc('# 归档\n', to, year) : null);
   if (!target) return `（读不到 ${to}）`;
 
   const result = moveBlock(source, handle, target);
@@ -483,7 +509,7 @@ export const LEDGER_TOOL_DECLS: ReadonlyArray<Omit<ToolDef, 'handler'>> = [
   },
   {
     name: 'ml_move',
-    description: '把整块（一整天）从一份记忆搬到另一份，按日期插到正确位置。不要用 move_file 按行搬：算错一行会把下一天的头切走。同一天在目标里已有会被拒绝。',
+    description: '把整块（一整天）从一份记忆搬到另一份，按日期插到正确位置。不要用 move_file 按行搬：算错一行会把下一天的头切走。同一天在目标里已有会被拒绝。目标是归档目录里的文件时自动建（折叠第一次落盘就是新建）。**归档是单向的**：可以搬进去，不搬出来。',
     tags: ['write'],
     parameters: {
       type: 'object',

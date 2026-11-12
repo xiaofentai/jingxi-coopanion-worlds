@@ -327,6 +327,25 @@ test('ml_move 目标已有同一天时拒绝，两个文件都不动', () => {
   });
 });
 
+test('ml_move 可以搬进归档里的新文件（折叠第一次落盘就是新建）', () => {
+  sandbox((box) => {
+    const receipt = box.run('ml_move', { from: '近期.md', block: '11-07', to: 'archive/近期-流水.md' });
+    assert.match(receipt, /已把「11-07」（\d+ 字）从 近期\.md/);
+    assert.match(receipt, /搬到 archive\/近期-流水\.md/);
+    assert.match(box.read('archive/近期-流水.md'), /## 11-07（周六）\n- 六人狼人杀，我赢了。/);
+    assert.ok(!box.read('近期.md').includes('## 11-07'));
+  });
+});
+
+test('ml_move 不许把归档里的东西搬出来——归档是单向的', () => {
+  sandbox((box) => {
+    box.run('ml_forget', { file: '近期.md', block: '11-07', old: '六人狼人杀' });
+    const receipt = box.run('ml_move', { from: 'archive/大事记-归档.md', block: '2026-11', to: '近期.md' });
+    assert.match(receipt, /归档里，不再搬出来/);
+    assert.match(box.read('archive/大事记-归档.md'), /六人狼人杀/);
+  });
+});
+
 test('ml_move 不认越界路径', () => {
   sandbox((box) => {
     assert.match(box.run('ml_move', { from: '../outside.md', block: '11-09', to: '近期.md' }), /读不到/);
