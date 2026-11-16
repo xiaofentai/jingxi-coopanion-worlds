@@ -151,14 +151,13 @@ node scripts/measure.ts C:\path\to\usage.jsonl
 
 ## 安装
 
-**从应用市场装**：搜「缓存保温」（包名 `world-cache-keepalive`），装上即可。
+在 Coopanion 里打开**扩展页 → 手动安装 → 从 npm 安装**，在「包名与版本」里填：
 
-**或从 npm 装**：
-
-```powershell
-# 在 Coopanion 的扩展目录下（data/extensions）
-pnpm add world-cache-keepalive
 ```
+world-cache-keepalive
+```
+
+想锁版本就写 `world-cache-keepalive@0.1.1`。市场里暂时搜不到这个名字，直接用手动安装填包名最稳。
 
 装完重启一次（新 World 要重新装配），然后到设置页把「缓存保温」打开，并做两件事：
 
