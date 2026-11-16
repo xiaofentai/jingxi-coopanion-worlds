@@ -8,6 +8,7 @@
 | [`coopanion-world-memory-backup`](https://www.npmjs.com/package/coopanion-world-memory-backup) | [`packages/memory-backup`](packages/memory-backup) | 到点提醒整理记忆，整理完备份数据目录，之后可按任意一份回滚 |
 | [`world-are-you-there`](https://www.npmjs.com/package/world-are-you-there) | [`packages/are-you-there`](packages/are-you-there) | 轮询屏幕锁没锁，把「人现在在不在桌前」写进环境提示 |
 | [`world-serverchan`](https://www.npmjs.com/package/world-serverchan) | [`packages/serverchan`](packages/serverchan) | 填一个 Server酱 SendKey，让 bot 把一句话推到 ta 的手机上 |
+| [`world-cache-keepalive`](https://www.npmjs.com/package/world-cache-keepalive) | [`packages/cache-keepalive`](packages/cache-keepalive) | 空档变长前补一条不要求回应的内部事件，让上游的前缀缓存不过期；一次缓存失效约合三千拍心跳 |
 
 ## 安装
 
