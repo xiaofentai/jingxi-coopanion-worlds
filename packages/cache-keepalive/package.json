@@ -1,0 +1,52 @@
+{
+  "name": "world-cache-keepalive",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "上下文空档变长之前补一条不要求回应的内部事件，让上游的前缀缓存不过期。实测缓存约 75 分钟失效，一次失效按整份前缀重算（26–38 万 token），抵得上一两千拍心跳；它不说话、不调用工具、不写盘。",
+  "author": "xiaofentai",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xiaofentai/jingxi-coopanion-worlds.git",
+    "directory": "packages/cache-keepalive"
+  },
+  "keywords": [
+    "cortico-world",
+    "world",
+    "cache",
+    "keepalive",
+    "heartbeat"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "cortico": {
+    "kind": "world",
+    "api": 6,
+    "displayName": "Cache Keepalive",
+    "tags": [
+      "system"
+    ],
+    "locales": {
+      "zh": {
+        "displayName": "缓存保温",
+        "description": "用途：空闲超过阈值就补一拍静默心跳，把上游的前缀缓存续上。原因：按缓存计价之后，钱几乎全花在「隔了几小时第一次开口」——那一轮要按整份前缀重新计价（实测 26–38 万 token），抵得上一两千拍心跳。缓存实测约 75 分钟失效，所以它只在空档变长之前敲一下：不说话、不调用工具、不往提示词里加字、不写盘。"
+      }
+    }
+  },
+  "files": [
+    "src",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test tests/beat.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2"
+  }
+}
