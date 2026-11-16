@@ -5,7 +5,7 @@ import type { WorldSection } from 'cortico/world.ts';
 import {
   DEFAULT_AFTER_MINUTES, DEFAULT_TEMPLATE_EN, DEFAULT_TEMPLATE_ZH, DEFAULT_TICK_SECONDS,
   MAX_AFTER_MINUTES, MAX_MAX_PER_DAY, MAX_TICK_SECONDS, MIN_AFTER_MINUTES, MIN_TICK_SECONDS,
-  CACHE_TTL_MINUTES,
+  LONGCAT_TTL_MINUTES,
 } from './beat.ts';
 
 export const CACHE_KEEPALIVE_ID = 'cache-keepalive';
@@ -51,8 +51,10 @@ const ZH: GroupText = {
     + '这个开关让插件在空档变长之前补一条内部事件，把缓存续上。它不说话、不调用工具、不写盘。',
   afterMinutes: {
     title: '空档阈值',
-    description: `距上一次模型调用超过这么多分钟才补一拍。实测缓存约 ${CACHE_TTL_MINUTES} 分钟过期`
-      + '（73 分钟还命中、78 分钟就整份重来），填到这个数以上功能就等于关着——插件还在跑，但每次都比缓存慢一步。',
+    description: '距上一次模型调用超过这么多分钟才补一拍。**默认 40 是在 LongCat-2.5 上量的**：'
+      + `那边缓存约 ${LONGCAT_TTL_MINUTES} 分钟过期（73 分钟还命中、78 分钟就整份重来）。`
+      + '换模型别照抄——先跑 `scripts/measure.ts`，它按你自己的 usage 日志给出建议值。'
+      + '填得比缓存有效期长，这个插件就等于没开：还在跑，但每次都慢一步。',
     suffix: '分钟',
   },
   tickSeconds: {
@@ -66,7 +68,7 @@ const ZH: GroupText = {
     description: '`{time}` 会换成当前时刻，例如 `（静默心跳：现在是 {time}）`。留空用默认那句。\n'
       + '⚠️ 默认这句很短，但它没告诉模型「这不是对方说的」。模型有可能把它当成一句搭话回过来'
       + '（桌宠里就冒泡了），也可能读成「到点了，该做点什么」，转手去查生态箱、写记忆——那一拍就变成五轮。'
-      + '想稳一点写成 `（静默心跳：现在是 {time}。不是他说的，不用回、不要调用工具。）`：'
+      + '想稳一点写成 `（静默心跳：现在是 {time}。不是ta说的，不用回、不要调用工具。）`：'
       + '多二十来个字，比一次误触便宜得多。',
   },
   quietHours: {
@@ -89,9 +91,10 @@ const EN: GroupText = {
     + 'stays warm. It never speaks, calls no tools and writes nothing.',
   afterMinutes: {
     title: 'Idle threshold',
-    description: `Beat only when the last model call is older than this. The cache lives about ${CACHE_TTL_MINUTES} `
-      + 'minutes (73 min still hits, 78 min misses entirely); setting this above that number leaves the plugin running '
-      + 'but always one step behind the expiry.',
+    description: 'Beat only when the last model call is older than this. **The default 40 was measured on '
+      + `LongCat-2.5**, where the cache lives about ${LONGCAT_TTL_MINUTES} minutes (73 min still hits, 78 min misses `
+      + 'entirely). Do not copy it to another provider: run `scripts/measure.ts` on your own usage log first. Set it '
+      + 'above the real cache lifetime and this plugin is effectively off.',
     suffix: 'min',
   },
   tickSeconds: {

@@ -10,9 +10,9 @@ export {
 export { CacheKeepaliveWorld } from './world.ts';
 export type { CacheKeepaliveWorldOptions, KeepaliveStatus } from './world.ts';
 export {
-  CACHE_TTL_MINUTES, DEFAULT_AFTER_MINUTES, DEFAULT_MAX_PER_DAY, DEFAULT_TEMPLATE_EN,
-  DEFAULT_TEMPLATE_ZH, DEFAULT_TICK_SECONDS, MAX_AFTER_MINUTES, MAX_MAX_PER_DAY, MAX_TICK_SECONDS,
-  MIN_AFTER_MINUTES, MIN_TICK_SECONDS,
+  DEFAULT_AFTER_MINUTES, DEFAULT_MAX_PER_DAY, DEFAULT_TEMPLATE_EN,
+  DEFAULT_TEMPLATE_ZH, DEFAULT_TICK_SECONDS, LONGCAT_TTL_MINUTES, MAX_AFTER_MINUTES, MAX_MAX_PER_DAY,
+  MAX_TICK_SECONDS, MIN_AFTER_MINUTES, MIN_TICK_SECONDS,
   clampAfterMinutes, clampMaxPerDay, clampTickSeconds, decideBeat, formatClock,
   inQuietWindow, localDay, localHour, minutesOf, parseQuietHours, renderHeartbeat,
 } from './beat.ts';

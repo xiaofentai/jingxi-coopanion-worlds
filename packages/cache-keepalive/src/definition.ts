@@ -21,7 +21,7 @@ export const CACHE_KEEPALIVE: WorldDefinition<CacheKeepaliveConfigSection> = {
       {
         type: `${CACHE_KEEPALIVE_ID}.beat`,
         description: {
-          zh: '空档变长时补的一拍静默心跳。正文明确写了「不是他说的、不用回、不要调用工具」，'
+          zh: '空档变长时补的一拍静默心跳。正文明确写了「不是ta说的、不用回、不要调用工具」，'
             + '目的只是让上游的前缀缓存续期。',
           en: 'A silent heartbeat pushed when the context has been quiet for a while. The text says plainly that it is '
             + 'not from them, needs no reply and calls for no tools; its only job is to keep the upstream prefix cache warm.',

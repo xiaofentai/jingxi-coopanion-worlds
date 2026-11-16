@@ -12,8 +12,11 @@ export const MIN_AFTER_MINUTES = 1;
 export const MAX_AFTER_MINUTES = 1440;
 export const DEFAULT_AFTER_MINUTES = 40;
 
-/** 实测边界：73 分钟还命中、78 分钟整份重来。阈值贴着这个数走等于没有保温。 */
-export const CACHE_TTL_MINUTES = 75;
+/**
+ * 参考边界：**只在 LongCat-2.5 上实测过**——73 分钟还命中、78 分钟整份重来。
+ * 这不是所有上游的性质：有的几分钟就过期，有的按整点失效，有的一直热着。**换模型别照抄，先跑 `scripts/measure.ts`。**
+ */
+export const LONGCAT_TTL_MINUTES = 75;
 
 /** 看表间隔，秒。只做一次 `statSync`，但没必要比这个更勤。 */
 export const MIN_TICK_SECONDS = 5;
