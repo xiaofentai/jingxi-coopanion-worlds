@@ -1,10 +1,16 @@
-import { describe, expect, it } from 'vitest';
-import { radarQuietMs, radarThresholds, areYouThereConfigGroup } from '../src/config.ts';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { ARE_YOU_THERE_DEFAULTS, areYouThereConfigGroup } from '../src/config.ts';
 import { decidePresence } from '../src/presence.ts';
 import {
   RADAR_FAR_LIMIT_MS, RADAR_STALE_MS, decideRadar, emptyRadarReading, parseRadarLine,
   type RadarReading,
 } from '../src/radar.ts';
+import {
+  RADAR_SETTINGS_FILE, clampRadarSettings, readRadarSettings, seedRadarSettings, writeRadarSettings,
+} from '../src/settings.ts';
 import { areYouThereText } from '../src/text.ts';
 
 const THRESHOLDS = { maxCm: 120, absentMs: 5_000, backMs: 2_000 };
@@ -150,6 +156,9 @@ describe('text and config wiring', () => {
         expect(text.config[key].title, `${language}.${key}.title`).toBeTruthy();
         expect(text.config[key].description, `${language}.${key}.description`).toBeTruthy();
       }
+      expect(text.config.radarGroup.title).toBeTruthy();
+      expect(text.config.radarGroup.description).toBeTruthy();
+      expect(text.config.radarGroup.descriptionOff).toBeTruthy();
       expect(text.event.passBy('3 s', '')).toBeTruthy();
       expect(text.event.awayRadar('9 s', '')).toBeTruthy();
       expect(text.event.backRadar('12:00', '5 min')).toBeTruthy();
@@ -157,31 +166,79 @@ describe('text and config wiring', () => {
       expect(text.tool.radarStale).toBeTruthy();
       expect(text.tool.lampStarting).toBeTruthy();
       expect(text.lamp.radar).toBeTruthy();
-      for (const key of ['radarTitle', 'radarDescription', 'present', 'absent', 'warming', 'stale', 'far', 'down', 'starting'] as const) {
+      for (const key of [
+        'radarTitle', 'radarDescription', 'present', 'absent', 'warming', 'stale', 'far', 'down', 'starting',
+        'fieldPort', 'fieldMaxDistance', 'fieldMaxCm', 'fieldAbsentSeconds', 'fieldBackSeconds',
+        'fieldPassByNotify', 'fieldQuietSeconds', 'save', 'saved',
+      ] as const) {
         expect(text.panel[key], `${language}.panel.${key}`).toBeTruthy();
       }
+      expect(text.panel.saveFailed('x')).toContain('x');
       expect(text.lines.awayRadar('11-17 15:10', '9 s')).toBeTruthy();
     }
   });
 
-  it('describes every radar key in the settings schema', () => {
+  it('leaves only the switch in the settings page', () => {
     for (const language of ['zh', 'en'] as const) {
       const group = areYouThereConfigGroup(language);
-      for (const key of [
-        'radarEnabled', 'radarPort', 'radarMaxDistance', 'radarMaxCm',
-        'radarAbsentSeconds', 'radarBackSeconds', 'radarPassByNotify', 'radarQuietSeconds',
-      ]) {
-        expect(group.schema.properties[`worlds.are-you-there.${key}`], key).toBeDefined();
-      }
+      const keys = Object.keys(group.schema.properties);
+      // 这些项已经搬到「雷达」页签，配置页里只剩开关
+      expect(keys.filter((key) => key.includes('.radar'))).toEqual(['worlds.are-you-there.radarEnabled']);
+      expect(keys).toContain('worlds.are-you-there.pollSeconds');
     }
   });
+});
 
-  it('clamps the radar numbers instead of trusting the config file', () => {
-    const base = { radarMaxCm: 0, radarAbsentSeconds: 10_000, radarBackSeconds: -5, radarQuietSeconds: -1 };
-    const thresholds = radarThresholds({ ...base } as never);
-    expect(thresholds.maxCm).toBe(30);
-    expect(thresholds.absentMs).toBe(600_000);
-    expect(thresholds.backMs).toBe(0);
-    expect(radarQuietMs({ ...base } as never)).toBe(0);
+describe('the radar settings file', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true });
+  });
+  const tempDir = () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ayt-radar-'));
+    dirs.push(dir);
+    return dir;
+  };
+  const cfg = ARE_YOU_THERE_DEFAULTS;
+
+  it('clamps anything it is handed instead of trusting it', () => {
+    const fallback = seedRadarSettings(cfg);
+    const clamped = clampRadarSettings({
+      port: '  ',
+      maxDistance: 999,
+      maxCm: 0,
+      absentSeconds: 10_000,
+      backSeconds: -5,
+      quietSeconds: -1,
+    }, fallback);
+    expect(clamped.port).toBe('auto');
+    expect(clamped.maxDistance).toBe(100);
+    expect(clamped.maxCm).toBe(30);
+    expect(clamped.absentSeconds).toBe(600);
+    expect(clamped.backSeconds).toBe(0);
+    expect(clamped.quietSeconds).toBe(0);
+    expect(clamped.passByNotify).toBe(fallback.passByNotify);
+  });
+
+  it('seeds itself from the config while the file does not exist yet', () => {
+    const dir = tempDir();
+    const settings = readRadarSettings(dir, { ...cfg, radarMaxCm: 150, radarAbsentSeconds: 7 });
+    expect(settings.maxCm).toBe(150);
+    expect(settings.absentSeconds).toBe(7);
+    expect(existsSync(join(dir, RADAR_SETTINGS_FILE))).toBe(false);
+  });
+
+  it('round-trips through the file and wins over the config afterwards', () => {
+    const dir = tempDir();
+    const saved = { ...seedRadarSettings(cfg), maxCm: 90, backSeconds: 4 };
+    writeRadarSettings(dir, saved);
+    expect(existsSync(join(dir, RADAR_SETTINGS_FILE))).toBe(true);
+    expect(readRadarSettings(dir, { ...cfg, radarMaxCm: 150 })).toEqual(saved);
+  });
+
+  it('falls back to the config when the file is corrupt', () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, RADAR_SETTINGS_FILE), '{oops', 'utf8');
+    expect(readRadarSettings(dir, cfg)).toEqual(seedRadarSettings(cfg));
   });
 });

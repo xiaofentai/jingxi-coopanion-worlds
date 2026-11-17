@@ -84,7 +84,7 @@ interface RadarView {
 
 interface PanelDecl {
   panels: Array<{ id: string; title: string; description?: string; getMethods?: string[] }>;
-  invoke: (panel: string, method: string) => Promise<unknown>;
+  invoke: (panel: string, method: string, args?: unknown[]) => Promise<unknown>;
 }
 
 /** 控制台从 `webUi()` 里取灯的数组，这里照抄那条路。 */
@@ -94,6 +94,16 @@ const lampsOf = (world: AreYouThereWorld): Lamp[] =>
 /** 控制台面板：声明与 `invoke`，同样从 `webUi()` 上取。 */
 const panelDecl = (world: AreYouThereWorld): PanelDecl =>
   world.webUi('zh') as unknown as PanelDecl;
+
+interface ConfigCard {
+  id: string;
+  owner: string;
+  schema: { title: string; description?: string; properties: Record<string, unknown> };
+}
+
+/** 设置页的卡片，按 `webUi().config` 的顺序。 */
+const configCards = (world: AreYouThereWorld): ConfigCard[] =>
+  (world.webUi('zh') as unknown as { config: ConfigCard[] }).config;
 
 function setup(opts: Setup = {}) {
   const lockedSequence = opts.locked ?? [false];
@@ -404,7 +414,7 @@ describe('world', () => {
     await settle();
     const decl = panelDecl(world);
     expect(decl.panels.map((panel) => panel.id)).toEqual(['radar']);
-    expect(decl.panels[0]!.title).toBe('雷达状态');
+    expect(decl.panels[0]!.title).toBe('雷达');
 
     const view = (await decl.invoke('radar', 'status')) as RadarView;
     expect(view.enabled).toBe(true);
@@ -421,6 +431,36 @@ describe('world', () => {
     const view = (await panelDecl(world).invoke('radar', 'status')) as RadarView;
     expect(view.enabled).toBe(false);
     expect(view.text).toBe('');
+    await world.stop();
+  });
+
+  it('leaves only the radar switch on the config tab', () => {
+    const cards = configCards(setup({ radar: { presentMs: 60_000 } }).world);
+    expect(cards).toHaveLength(1);
+    const keys = Object.keys(cards[0]!.schema.properties);
+    expect(keys.filter((key) => key.includes('.radar'))).toEqual(['worlds.are-you-there.radarEnabled']);
+  });
+
+  it('hands the panel the seven knobs and stores what it saves', async () => {
+    const { world, host, dataDir } = setup({ radar: { presentMs: 60_000 } });
+    await world.start(host as never);
+    await settle();
+
+    const first = (await panelDecl(world).invoke('radar', 'status')) as RadarView & {
+      fields: Array<{ key: string; kind: string; value: unknown; suffix?: string }>;
+      labels: { save: string; saved: string };
+    };
+    expect(first.fields.map((field) => field.key)).toEqual([
+      'port', 'maxDistance', 'maxCm', 'absentSeconds', 'backSeconds', 'passByNotify', 'quietSeconds',
+    ]);
+    expect(first.labels.saved).toBe('已保存');
+
+    const saved = (await panelDecl(world).invoke('radar', 'save', [{ maxCm: 90, backSeconds: 4 }])) as typeof first;
+    expect(saved.fields.find((field) => field.key === 'maxCm')!.value).toBe(90);
+    // 存进 World 自己的文件，不进 config.json
+    const file = JSON.parse(readFileSync(join(dataDir, 'are-you-there-radar.json'), 'utf8'));
+    expect(file).toMatchObject({ maxCm: 90, backSeconds: 4 });
+    expect(readFileSync(join(dataDir, 'are-you-there.json'), 'utf8').includes('radarMaxCm')).toBe(false);
     await world.stop();
   });
 });

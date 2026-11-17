@@ -14,7 +14,8 @@ import { isLanguage } from 'cortico/core/language.ts';
 import type { ToolDef, ToolOutcome, World, WorldHost, WorldLamp, WorldWebUiDecl } from 'cortico/core/types.ts';
 import {
   ARE_YOU_THERE_ID, areYouThereConfigGroup, clampedPollSeconds, idleThresholdMs,
-  radarMaxDistance, radarPortName, radarQuietMs, radarThresholds,
+  MAX_RADAR_ABSENT_SECONDS, MAX_RADAR_BACK_SECONDS, MAX_RADAR_MAX_CM, MAX_RADAR_MAX_DISTANCE,
+  MAX_RADAR_QUIET_SECONDS, MIN_RADAR_MAX_CM,
   type AreYouThereConfigSection,
 } from './config.ts';
 import {
@@ -35,6 +36,10 @@ import {
   RADAR_FAR_LIMIT_MS, RADAR_STALE_MS, RadarTracker, decideRadar,
   type RadarDecision, type RadarReading, type RadarSource,
 } from './radar.ts';
+import {
+  clampRadarSettings, readRadarSettings, settingsQuietMs, settingsThresholds, writeRadarSettings,
+  type RadarSettings,
+} from './settings.ts';
 import { readState, writeState, STATE_FILE } from './state.ts';
 import { PROMPT_VARS, areYouThereText, textLanguage, type TextLanguage } from './text.ts';
 
@@ -127,12 +132,15 @@ export class AreYouThereWorld implements World {
   private lastRadarDecision: RadarDecision | null = null;
   /** 已经推过的那段「路过」，用结束时刻去重。 */
   private lastPassingAt: number | null = null;
+  /** 雷达的调参项：存在 World 自己的文件里，由「雷达」页签读写。 */
+  private radarSettings: RadarSettings;
   private readonly injectedIdle: IdleSource | null;
   private readonly injectedRadar: RadarSource | null;
   private readonly confirmProbe: ConfirmProbe;
 
   constructor(private readonly opts: AreYouThereWorldOptions) {
     this.state = readState(this.stateFile);
+    this.radarSettings = readRadarSettings(this.opts.dataDir, this.opts.cfg);
     this.injectedIdle = opts.idle ?? null;
     this.injectedRadar = opts.radar ?? null;
     this.confirmProbe = opts.confirm ?? defaultConfirmProbe;
@@ -196,9 +204,9 @@ export class AreYouThereWorld implements World {
         id: 'radar',
         title: t.panel.radarTitle,
         description: t.panel.radarDescription,
-        getMethods: ['status'],
+        getMethods: ['status', 'save'],
       }],
-      invoke: (panel: string, method: string) => this.panelInvoke(panel, method, language),
+      invoke: (panel: string, method: string, args: unknown[]) => this.panelInvoke(panel, method, args, language),
       config: [areYouThereConfigGroup(language)],
       promptDocs: [{
         key: `worlds.${ARE_YOU_THERE_ID}.envPrompt`,
@@ -247,7 +255,7 @@ export class AreYouThereWorld implements World {
       return { enabled: true, tone: 'bad', text: t.panel.stale, hint: hint(t.tool.radarStale) };
     }
 
-    const thresholds = radarThresholds(this.cfg);
+    const thresholds = settingsThresholds(this.radarSettings);
     const decision = decideRadar(reading, now, thresholds);
     const cm = reading.cm !== null ? String(reading.cm) : '';
     if (decision !== null && decision.absent) {
@@ -287,10 +295,76 @@ export class AreYouThereWorld implements World {
     return [{ label: areYouThereText(language).lamp.radar, state, hint: view.hint }];
   }
 
-  /** World 页面板的方法：`radar.status`，只读。 */
-  private async panelInvoke(panel: string, method: string, language: Language): Promise<unknown> {
-    if (panel !== 'radar' || method !== 'status') throw new Error(`no such method: ${panel}.${method}`);
-    return this.radarStatus(language);
+  /**
+   * 面板上的那张表单。标签、单位、范围都由服务端算好，前端只管画，两边不会各写一套文案。
+   */
+  private panelFields(language: Language): Array<Record<string, unknown>> {
+    const t = areYouThereText(language);
+    const c = t.config;
+    const s = this.radarSettings;
+    return [
+      { key: 'port', label: t.panel.fieldPort, kind: 'text', value: s.port },
+      {
+        key: 'maxDistance', label: t.panel.fieldMaxDistance, kind: 'int',
+        value: s.maxDistance, min: 0, max: MAX_RADAR_MAX_DISTANCE, suffix: c.radarMaxDistance.suffix,
+      },
+      {
+        key: 'maxCm', label: t.panel.fieldMaxCm, kind: 'int',
+        value: s.maxCm, min: MIN_RADAR_MAX_CM, max: MAX_RADAR_MAX_CM, suffix: c.radarMaxCm.suffix,
+      },
+      {
+        key: 'absentSeconds', label: t.panel.fieldAbsentSeconds, kind: 'int',
+        value: s.absentSeconds, min: 1, max: MAX_RADAR_ABSENT_SECONDS, suffix: c.radarAbsentSeconds.suffix,
+      },
+      {
+        key: 'backSeconds', label: t.panel.fieldBackSeconds, kind: 'int',
+        value: s.backSeconds, min: 0, max: MAX_RADAR_BACK_SECONDS, suffix: c.radarBackSeconds.suffix,
+      },
+      { key: 'passByNotify', label: t.panel.fieldPassByNotify, kind: 'bool', value: s.passByNotify },
+      {
+        key: 'quietSeconds', label: t.panel.fieldQuietSeconds, kind: 'int',
+        value: s.quietSeconds, min: 0, max: MAX_RADAR_QUIET_SECONDS, suffix: c.radarQuietSeconds.suffix,
+      },
+    ];
+  }
+
+  /** 面板要的全部东西：状态一行、表单一份、按钮文案。 */
+  private panelPayload(language: Language): Record<string, unknown> {
+    const t = areYouThereText(language);
+    return {
+      ...this.radarStatus(language),
+      fields: this.panelFields(language),
+      labels: { save: t.panel.save, saved: t.panel.saved },
+    };
+  }
+
+  /**
+   * World 页面板的方法。`radar.status` 读状态与当前调参项，`radar.save` 存一份新的。
+   *
+   * 串口或模块距离改了就把读串口的子进程重启一次，否则改完要等下一次 World 启动才生效。
+   */
+  private async panelInvoke(
+    panel: string,
+    method: string,
+    args: unknown[],
+    language: Language,
+  ): Promise<unknown> {
+    if (panel !== 'radar') throw new Error(`no such panel: ${panel}`);
+    if (method === 'status') return this.panelPayload(language);
+    if (method === 'save') {
+      const next = clampRadarSettings((args?.[0] ?? {}) as Partial<RadarSettings>, this.radarSettings);
+      writeRadarSettings(this.opts.dataDir, next);
+      const reconnect = next.port !== this.radarSettings.port || next.maxDistance !== this.radarSettings.maxDistance;
+      this.radarSettings = next;
+      if (reconnect) {
+        this.radar?.stop();
+        this.radar = null;
+        this.radarKey = '';
+        this.ensureRadar();
+      }
+      return this.panelPayload(language);
+    }
+    throw new Error(`no such method: ${panel}.${method}`);
   }
 
   async start(host: WorldHost): Promise<void> {
@@ -365,16 +439,16 @@ export class AreYouThereWorld implements World {
       return null;
     }
     if (this.injectedRadar !== null) return this.injectedRadar;
-    const key = `${radarPortName(this.cfg)}|${radarMaxDistance(this.cfg)}`;
+    const key = `${this.radarSettings.port}|${this.radarSettings.maxDistance}`;
     if (this.radar !== null && this.radarKey !== key) {
       this.radar.stop();
       this.radar = null;
     }
     if (this.radar === null) {
       this.radar = new RadarTracker({
-        port: radarPortName(this.cfg),
-        maxDistance: radarMaxDistance(this.cfg),
-        maxCm: () => radarThresholds(this.cfg).maxCm,
+        port: this.radarSettings.port,
+        maxDistance: this.radarSettings.maxDistance,
+        maxCm: () => this.radarSettings.maxCm,
       });
       this.radar.start();
       this.radarKey = key;
@@ -415,12 +489,12 @@ export class AreYouThereWorld implements World {
 
       const radarSource = this.ensureRadar();
       const radarReading = radarSource !== null ? this.currentRadar() : null;
-      const radarDecision = decideRadar(radarReading, Date.now(), radarThresholds(this.cfg));
+      const radarDecision = decideRadar(radarReading, Date.now(), settingsThresholds(this.radarSettings));
       this.lastRadar = radarReading;
       this.lastRadarDecision = radarDecision;
       this.maybePassBy(radarReading);
 
-      let reading = decidePresence(locked, idle?.idleMs ?? null, threshold, radarDecision, radarQuietMs(this.cfg));
+      let reading = decidePresence(locked, idle?.idleMs ?? null, threshold, radarDecision, settingsQuietMs(this.radarSettings));
       if (reading.away && reading.reason === 'idle' && this.state.away !== true) {
         const verdict = await this.confirmIdle(reading);
         reading = verdict.reading;
@@ -525,7 +599,7 @@ export class AreYouThereWorld implements World {
     if (reading.streakEndedAt === null || reading.streakMs === null) return;
     if (this.lastPassingAt === reading.streakEndedAt) return;
     if (this.state.away !== true) return;
-    if (reading.streakMs >= radarThresholds(this.cfg).backMs) return;
+    if (reading.streakMs >= settingsThresholds(this.radarSettings).backMs) return;
 
     this.lastPassingAt = reading.streakEndedAt;
     const text = this.t.event.passBy(
@@ -599,7 +673,7 @@ export class AreYouThereWorld implements World {
     if (!reading.linked) return t.tool.radarDisconnected(reading.problem || 'unknown');
 
     const now = Date.now();
-    const thresholds = radarThresholds(this.cfg);
+    const thresholds = settingsThresholds(this.radarSettings);
     const decision = decideRadar(reading, now, thresholds);
     const cm = reading.cm !== null ? String(reading.cm) : '';
     if (decision !== null && decision.absent) {

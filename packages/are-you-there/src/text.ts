@@ -30,6 +30,8 @@ export interface AreYouThereText {
     radarBackSeconds: { title: string; description: string; suffix: string };
     radarPassByNotify: { title: string; description: string };
     radarQuietSeconds: { title: string; description: string; suffix: string };
+    /** 雷达那张卡片自己的标题与说明；`descriptionOff` 用在开关还没打开的时候。 */
+    radarGroup: { title: string; description: string; descriptionOff: string };
   };
   /** 状态那几行，环境提示与工具回执共用。 */
   lines: {
@@ -90,7 +92,7 @@ export interface AreYouThereText {
   lamp: {
     radar: string;
   };
-  /** World 页里的「雷达状态」面板：一颗点加一句话。 */
+  /** World 页里的「雷达」面板：一颗点加一句话，再加那几项调参。 */
   panel: {
     radarTitle: string;
     radarDescription: string;
@@ -101,6 +103,16 @@ export interface AreYouThereText {
     far: string;
     down: string;
     starting: string;
+    fieldPort: string;
+    fieldMaxDistance: string;
+    fieldMaxCm: string;
+    fieldAbsentSeconds: string;
+    fieldBackSeconds: string;
+    fieldPassByNotify: string;
+    fieldQuietSeconds: string;
+    save: string;
+    saved: string;
+    saveFailed: (reason: string) => string;
   };
   event: {
     changed: string;
@@ -163,7 +175,8 @@ const zh: AreYouThereText = {
       title: '用毫米波雷达判定',
       description:
         '插了 HLK-LD2402（USB 转 TTL）就打开。它只看桌前这一小块：范围内有人就当作在、连续没人就判离开，'
-        + '比键鼠空闲可靠得多——读书、看纸质材料、用手柄都不会被误判。没插硬件时打开只会一直提示没连上。',
+        + '比键鼠空闲可靠得多——读书、看纸质材料、用手柄都不会被误判。没插硬件时打开只会一直提示没连上。'
+        + '串口、距离、门限这些细项在 World 页的「雷达」页签里调。',
     },
     radarPort: {
       title: '雷达串口',
@@ -203,6 +216,11 @@ const zh: AreYouThereText = {
         '单位秒。雷达报没人、但键盘鼠标这么久之内还动过，就当作雷达漏检（人坐着没动、微动门限偏高），不判离开。'
         + '0 表示完全听雷达的：它一报没人就算走。',
       suffix: '秒',
+    },
+    radarGroup: {
+      title: '雷达',
+      description: 'HLK-LD2402 挂在 USB 转 TTL 上，串口 115200 8N1。',
+      descriptionOff: '没装硬件就别打开。打开后离开本页再进来，下面几项参数才会展开。',
     },
   },
   lines: {
@@ -268,8 +286,8 @@ const zh: AreYouThereText = {
     radar: '雷达',
   },
   panel: {
-    radarTitle: '雷达状态',
-    radarDescription: 'USB 串口上的那颗 HLK-LD2402。没打开「用毫米波雷达判定」时，这里什么都不显示。',
+    radarTitle: '雷达',
+    radarDescription: 'USB 串口上的那颗 HLK-LD2402：上面一行是它的状态，下面是它那几项调参。开关在「配置」页签里。',
     present: '正常工作，有人',
     absent: '正常工作，无人',
     warming: '已连接，还没在范围内见到人',
@@ -277,6 +295,16 @@ const zh: AreYouThereText = {
     far: '读到的距离都在范围之外',
     down: '未连接',
     starting: '正在找串口',
+    fieldPort: '串口',
+    fieldMaxDistance: '模块探测距离',
+    fieldMaxCm: '只把这么近的人算作在桌前',
+    fieldAbsentSeconds: '多久没人算离开',
+    fieldBackSeconds: '多久有人才算回来',
+    fieldPassByNotify: '有人经过时推事件',
+    fieldQuietSeconds: '键鼠还热着就不信雷达',
+    save: '保存',
+    saved: '已保存',
+    saveFailed: (reason) => `保存失败：${reason}`,
   },
   envPrompt: {
     title: '在吗 · 环境提示',
@@ -335,7 +363,7 @@ const en: AreYouThereText = {
         'Turn on when an HLK-LD2402 is wired through a USB serial adapter. It only watches the desk: someone inside the range '
         + 'counts as present, nobody inside it counts as away. Far more reliable than an idle timer — reading a book, a paper '
         + 'handout or playing with a gamepad no longer looks like leaving. With no hardware attached, turning this on just '
-        + 'reports that it is not connected.',
+        + 'reports that it is not connected. The port, the range and the thresholds live on the "Radar" tab of the World page.',
     },
     radarPort: {
       title: 'Radar serial port',
@@ -376,6 +404,11 @@ const en: AreYouThereText = {
         'Seconds. When the radar reports nobody but the keyboard or mouse moved within this window, the radar is assumed to have missed them '
         + '(sitting still, a threshold that is set too high) and they are not called away. 0 trusts the radar completely.',
       suffix: 's',
+    },
+    radarGroup: {
+      title: 'Radar',
+      description: 'An HLK-LD2402 on a USB serial adapter, 115200 8N1.',
+      descriptionOff: 'Leave it off unless the hardware is plugged in. Once on, leave this page and come back: the rest of the settings appear then.',
     },
   },
   lines: {
@@ -442,8 +475,8 @@ const en: AreYouThereText = {
     radar: 'Radar',
   },
   panel: {
-    radarTitle: 'Radar status',
-    radarDescription: 'The HLK-LD2402 on the USB serial port. Nothing shows here while "Use the mmWave radar" is off.',
+    radarTitle: 'Radar',
+    radarDescription: 'The HLK-LD2402 on the USB serial port: the line on top is its state, below are its own settings. The on/off switch is on the "Config" tab.',
     present: 'Working, someone at the desk',
     absent: 'Working, nobody at the desk',
     warming: 'Connected, but nobody has been in range yet',
@@ -451,6 +484,16 @@ const en: AreYouThereText = {
     far: 'Everything it reads is beyond the configured range',
     down: 'Not connected',
     starting: 'Looking for the serial port',
+    fieldPort: 'Serial port',
+    fieldMaxDistance: 'Module range',
+    fieldMaxCm: 'How close someone has to be',
+    fieldAbsentSeconds: 'Absence that counts as away',
+    fieldBackSeconds: 'Presence that counts as back',
+    fieldPassByNotify: 'Raise an event when someone passes by',
+    fieldQuietSeconds: 'Ignore the radar while the keyboard is warm',
+    save: 'Save',
+    saved: 'Saved',
+    saveFailed: (reason) => `Could not save: ${reason}`,
   },
   envPrompt: {
     title: 'Are you there: environment',

@@ -6,10 +6,15 @@ export { ARE_YOU_THERE };
 export {
   ARE_YOU_THERE_DEFAULTS, ARE_YOU_THERE_ID, clampedPollSeconds, idleThresholdMs,
   areYouThereConfigGroup, DEFAULT_IDLE_MINUTES, DEFAULT_MEDIA_KEYWORDS, MAX_IDLE_MINUTES,
-  radarMaxDistance, radarPortName, radarQuietMs, radarThresholds,
+  radarPortName,
   DEFAULT_RADAR_MAX_CM, DEFAULT_RADAR_MAX_DISTANCE, MAX_RADAR_MAX_CM, MAX_RADAR_MAX_DISTANCE,
 } from './config.ts';
 export type { AreYouThereConfigSection } from './config.ts';
+export {
+  clampRadarSettings, readRadarSettings, seedRadarSettings, settingsQuietMs, settingsThresholds,
+  writeRadarSettings, RADAR_SETTINGS_FILE,
+} from './settings.ts';
+export type { RadarSettings } from './settings.ts';
 export {
   RadarTracker, decideRadar, emptyRadarReading, parseRadarLine,
   RADAR_FAR_LIMIT_MS, RADAR_SCRIPT, RADAR_STALE_MS,

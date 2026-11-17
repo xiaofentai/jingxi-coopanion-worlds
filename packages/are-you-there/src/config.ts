@@ -2,7 +2,6 @@
 import type { ConfigGroup } from 'cortico/core/config-schema.ts';
 import type { Language } from 'cortico/core/language.ts';
 import type { WorldSection } from 'cortico/world.ts';
-import type { RadarThresholds } from './radar.ts';
 import { areYouThereText } from './text.ts';
 
 export const ARE_YOU_THERE_ID = 'are-you-there';
@@ -94,34 +93,10 @@ export const ARE_YOU_THERE_DEFAULTS: AreYouThereConfigSection = {
   radarQuietSeconds: DEFAULT_RADAR_QUIET_SECONDS,
 };
 
-const clampInt = (value: unknown, fallback: number, min: number, max: number): number => {
-  const raw = typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : fallback;
-  return Math.min(max, Math.max(min, raw));
-};
-
 /** 串口号：空或 `auto` 都走自动枚举；写具体端口就照写。 */
 export function radarPortName(cfg: AreYouThereConfigSection): string {
   const raw = typeof cfg.radarPort === 'string' ? cfg.radarPort.trim() : '';
   return raw === '' ? 'auto' : raw;
-}
-
-/** 迟滞参数，毫秒。 */
-export function radarThresholds(cfg: AreYouThereConfigSection): RadarThresholds {
-  return {
-    maxCm: clampInt(cfg.radarMaxCm, DEFAULT_RADAR_MAX_CM, MIN_RADAR_MAX_CM, MAX_RADAR_MAX_CM),
-    absentMs: clampInt(cfg.radarAbsentSeconds, DEFAULT_RADAR_ABSENT_SECONDS, 1, MAX_RADAR_ABSENT_SECONDS) * 1000,
-    backMs: clampInt(cfg.radarBackSeconds, DEFAULT_RADAR_BACK_SECONDS, 0, MAX_RADAR_BACK_SECONDS) * 1000,
-  };
-}
-
-/** 模块最大距离，0.1 m 单位；0 表示不动模块。 */
-export function radarMaxDistance(cfg: AreYouThereConfigSection): number {
-  return clampInt(cfg.radarMaxDistance, DEFAULT_RADAR_MAX_DISTANCE, 0, MAX_RADAR_MAX_DISTANCE);
-}
-
-/** 雷达说没人时要求的键鼠安静时长，毫秒；0 表示不设这个门槛。 */
-export function radarQuietMs(cfg: AreYouThereConfigSection): number {
-  return clampInt(cfg.radarQuietSeconds, DEFAULT_RADAR_QUIET_SECONDS, 0, MAX_RADAR_QUIET_SECONDS) * 1000;
 }
 
 /** 夹在范围内的轮询间隔，秒；写坏了就退回默认值。 */
@@ -201,63 +176,6 @@ export function areYouThereConfigGroup(language: Language = 'zh'): ConfigGroup {
           description: c.radarEnabled.description,
           'x-hot': true,
         },
-        [`${K}.radarPort`]: {
-          type: 'string',
-          title: c.radarPort.title,
-          description: c.radarPort.description,
-          'x-hot': true,
-        },
-        [`${K}.radarMaxDistance`]: {
-          type: 'integer',
-          title: c.radarMaxDistance.title,
-          description: c.radarMaxDistance.description,
-          minimum: 0,
-          maximum: MAX_RADAR_MAX_DISTANCE,
-          'x-suffix': c.radarMaxDistance.suffix,
-          'x-hot': true,
-        },
-        [`${K}.radarMaxCm`]: {
-          type: 'integer',
-          title: c.radarMaxCm.title,
-          description: c.radarMaxCm.description,
-          minimum: MIN_RADAR_MAX_CM,
-          maximum: MAX_RADAR_MAX_CM,
-          'x-suffix': c.radarMaxCm.suffix,
-          'x-hot': true,
-        },
-        [`${K}.radarAbsentSeconds`]: {
-          type: 'integer',
-          title: c.radarAbsentSeconds.title,
-          description: c.radarAbsentSeconds.description,
-          minimum: 1,
-          maximum: MAX_RADAR_ABSENT_SECONDS,
-          'x-suffix': c.radarAbsentSeconds.suffix,
-          'x-hot': true,
-        },
-        [`${K}.radarBackSeconds`]: {
-          type: 'integer',
-          title: c.radarBackSeconds.title,
-          description: c.radarBackSeconds.description,
-          minimum: 0,
-          maximum: MAX_RADAR_BACK_SECONDS,
-          'x-suffix': c.radarBackSeconds.suffix,
-          'x-hot': true,
-        },
-        [`${K}.radarPassByNotify`]: {
-          type: 'boolean',
-          title: c.radarPassByNotify.title,
-          description: c.radarPassByNotify.description,
-          'x-hot': true,
-        },
-        [`${K}.radarQuietSeconds`]: {
-          type: 'integer',
-          title: c.radarQuietSeconds.title,
-          description: c.radarQuietSeconds.description,
-          minimum: 0,
-          maximum: MAX_RADAR_QUIET_SECONDS,
-          'x-suffix': c.radarQuietSeconds.suffix,
-          'x-hot': true,
-        },
         [`${K}.notifyAway`]: {
           type: 'boolean',
           title: c.notifyAway.title,
@@ -274,3 +192,4 @@ export function areYouThereConfigGroup(language: Language = 'zh'): ConfigGroup {
     },
   };
 }
+
