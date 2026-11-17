@@ -1,5 +1,14 @@
 # 在吗
 
+## 0.6.0
+
+- 面板改名「设置」，改用控制台自己的组件画：卡片是 `ui.foldSheet`（可折叠、记住折叠状态），行是设置页那套 `companion-row / configline / tfield / tunit`，控件是 `ui.input` / `ui.checkbox`。此前那版是裸 DOM 加内联样式，和界面其它部分不像。
+- 判定细节也搬了进来：`checkForeground` / `mediaKeywords` / `checkScreen` 移出配置页，配置页只剩 4 个开关和 2 个数字。关键词输入框只在「看前台窗口」打开时出现（没启用就折叠）。
+- 雷达那张卡：开关关着时整卡只留一句「没有可调项」，七项参数不渲染。
+- 保存改成停手 0.6 秒自动保存（与配置页一致），不再有「保存」按钮；轮询只在字段集合不变时同步取值，不重建节点，打字不丢焦点。
+- 这些值统一存 `<data>/are-you-there-settings.json`；0.5.x 的 `are-you-there-radar.json` 会被读一次搬过来。
+- 面板方法与 id 改为 `settings.status` / `settings.save`。
+
 ## 0.5.1
 
 - 页头（World 页面顶部，和「联网 Pro」的工具调用计数同一排）新增三颗药丸：`雷达 已连接｜状态 正常工作，有人｜读数 79 厘米`。走页面声明的 `badges`，雷达没打开时不出。

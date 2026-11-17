@@ -11,10 +11,10 @@ export {
 } from './config.ts';
 export type { AreYouThereConfigSection } from './config.ts';
 export {
-  clampRadarSettings, readRadarSettings, seedRadarSettings, settingsQuietMs, settingsThresholds,
-  writeRadarSettings, RADAR_SETTINGS_FILE,
+  clampSettings, readSettings, seedSettings, settingsQuietMs, settingsThresholds,
+  writeSettings, SETTINGS_FILE, LEGACY_SETTINGS_FILE,
 } from './settings.ts';
-export type { RadarSettings } from './settings.ts';
+export type { WorldSettings } from './settings.ts';
 export {
   RadarTracker, decideRadar, emptyRadarReading, parseRadarLine,
   RADAR_FAR_LIMIT_MS, RADAR_SCRIPT, RADAR_STALE_MS,

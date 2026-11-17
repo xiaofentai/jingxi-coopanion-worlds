@@ -9,7 +9,7 @@ import {
   type RadarReading,
 } from '../src/radar.ts';
 import {
-  RADAR_SETTINGS_FILE, clampRadarSettings, readRadarSettings, seedRadarSettings, writeRadarSettings,
+  LEGACY_SETTINGS_FILE, SETTINGS_FILE, clampSettings, readSettings, seedSettings, writeSettings,
 } from '../src/settings.ts';
 import { areYouThereText } from '../src/text.ts';
 
@@ -171,9 +171,11 @@ describe('text and config wiring', () => {
       }
       expect(text.badge.centimetres('79')).toContain('79');
       for (const key of [
-        'radarTitle', 'radarDescription', 'present', 'absent', 'warming', 'stale', 'far', 'down', 'starting',
+        'title', 'description', 'judgeTitle', 'judgeDescription', 'radarTitle', 'radarDescription',
+        'radarOff', 'status', 'present', 'absent', 'warming', 'stale', 'far', 'down', 'starting',
+        'fieldCheckForeground', 'fieldMediaKeywords', 'fieldCheckScreen',
         'fieldPort', 'fieldMaxDistance', 'fieldMaxCm', 'fieldAbsentSeconds', 'fieldBackSeconds',
-        'fieldPassByNotify', 'fieldQuietSeconds', 'save', 'saved',
+        'fieldPassByNotify', 'fieldQuietSeconds', 'saved',
       ] as const) {
         expect(text.panel[key], `${language}.panel.${key}`).toBeTruthy();
       }
@@ -182,67 +184,81 @@ describe('text and config wiring', () => {
     }
   });
 
-  it('leaves only the switch in the settings page', () => {
+  it('leaves only the switches in the config page', () => {
     for (const language of ['zh', 'en'] as const) {
       const group = areYouThereConfigGroup(language);
       const keys = Object.keys(group.schema.properties);
-      // 这些项已经搬到「雷达」页签，配置页里只剩开关
-      expect(keys.filter((key) => key.includes('.radar'))).toEqual(['worlds.are-you-there.radarEnabled']);
+      // 判定细节与雷达那几项都搬到了「设置」页签，配置页只剩开关与两个数字
+      expect(keys.filter((key) => key.startsWith('worlds.are-you-there.radar'))).toEqual(['worlds.are-you-there.radarEnabled']);
+      expect(keys).not.toContain('worlds.are-you-there.mediaKeywords');
+      expect(keys).not.toContain('worlds.are-you-there.checkForeground');
+      expect(keys).not.toContain('worlds.are-you-there.checkScreen');
+      expect(keys).toContain('worlds.are-you-there.checkLock');
       expect(keys).toContain('worlds.are-you-there.pollSeconds');
     }
   });
 });
 
-describe('the radar settings file', () => {
+describe('the settings file', () => {
   const dirs: string[] = [];
   afterEach(() => {
     while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true });
   });
   const tempDir = () => {
-    const dir = mkdtempSync(join(tmpdir(), 'ayt-radar-'));
+    const dir = mkdtempSync(join(tmpdir(), 'ayt-settings-'));
     dirs.push(dir);
     return dir;
   };
   const cfg = ARE_YOU_THERE_DEFAULTS;
 
   it('clamps anything it is handed instead of trusting it', () => {
-    const fallback = seedRadarSettings(cfg);
-    const clamped = clampRadarSettings({
-      port: '  ',
-      maxDistance: 999,
-      maxCm: 0,
-      absentSeconds: 10_000,
-      backSeconds: -5,
-      quietSeconds: -1,
+    const fallback = seedSettings(cfg);
+    const clamped = clampSettings({
+      radarPort: '  ',
+      radarMaxDistance: 999,
+      radarMaxCm: 0,
+      radarAbsentSeconds: 10_000,
+      radarBackSeconds: -5,
+      radarQuietSeconds: -1,
     }, fallback);
-    expect(clamped.port).toBe('auto');
-    expect(clamped.maxDistance).toBe(100);
-    expect(clamped.maxCm).toBe(30);
-    expect(clamped.absentSeconds).toBe(600);
-    expect(clamped.backSeconds).toBe(0);
-    expect(clamped.quietSeconds).toBe(0);
-    expect(clamped.passByNotify).toBe(fallback.passByNotify);
+    expect(clamped.radarPort).toBe('auto');
+    expect(clamped.radarMaxDistance).toBe(100);
+    expect(clamped.radarMaxCm).toBe(30);
+    expect(clamped.radarAbsentSeconds).toBe(600);
+    expect(clamped.radarBackSeconds).toBe(0);
+    expect(clamped.radarQuietSeconds).toBe(0);
+    expect(clamped.radarPassByNotify).toBe(fallback.radarPassByNotify);
   });
 
   it('seeds itself from the config while the file does not exist yet', () => {
     const dir = tempDir();
-    const settings = readRadarSettings(dir, { ...cfg, radarMaxCm: 150, radarAbsentSeconds: 7 });
-    expect(settings.maxCm).toBe(150);
-    expect(settings.absentSeconds).toBe(7);
-    expect(existsSync(join(dir, RADAR_SETTINGS_FILE))).toBe(false);
+    const settings = readSettings(dir, { ...cfg, radarMaxCm: 150, checkForeground: true, mediaKeywords: 'vlc' });
+    expect(settings.radarMaxCm).toBe(150);
+    expect(settings.checkForeground).toBe(true);
+    expect(settings.mediaKeywords).toBe('vlc');
+    expect(existsSync(join(dir, SETTINGS_FILE))).toBe(false);
   });
 
   it('round-trips through the file and wins over the config afterwards', () => {
     const dir = tempDir();
-    const saved = { ...seedRadarSettings(cfg), maxCm: 90, backSeconds: 4 };
-    writeRadarSettings(dir, saved);
-    expect(existsSync(join(dir, RADAR_SETTINGS_FILE))).toBe(true);
-    expect(readRadarSettings(dir, { ...cfg, radarMaxCm: 150 })).toEqual(saved);
+    const saved = { ...seedSettings(cfg), radarMaxCm: 90, mediaKeywords: 'mpv' };
+    writeSettings(dir, saved);
+    expect(existsSync(join(dir, SETTINGS_FILE))).toBe(true);
+    expect(readSettings(dir, { ...cfg, radarMaxCm: 150 })).toEqual(saved);
+  });
+
+  it('picks up the radar file 0.5.x wrote, once', () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, LEGACY_SETTINGS_FILE), JSON.stringify({ radarMaxCm: 111 }), 'utf8');
+    expect(readSettings(dir, cfg).radarMaxCm).toBe(111);
+    // 新文件写下去之后就只认新的
+    writeSettings(dir, { ...seedSettings(cfg), radarMaxCm: 77 });
+    expect(readSettings(dir, cfg).radarMaxCm).toBe(77);
   });
 
   it('falls back to the config when the file is corrupt', () => {
     const dir = tempDir();
-    writeFileSync(join(dir, RADAR_SETTINGS_FILE), '{oops', 'utf8');
-    expect(readRadarSettings(dir, cfg)).toEqual(seedRadarSettings(cfg));
+    writeFileSync(join(dir, SETTINGS_FILE), '{oops', 'utf8');
+    expect(readSettings(dir, cfg)).toEqual(seedSettings(cfg));
   });
 });

@@ -37,8 +37,8 @@ import {
   type RadarDecision, type RadarReading, type RadarSource,
 } from './radar.ts';
 import {
-  clampRadarSettings, readRadarSettings, settingsQuietMs, settingsThresholds, writeRadarSettings,
-  type RadarSettings,
+  clampSettings, readSettings, settingsQuietMs, settingsThresholds, writeSettings,
+  type WorldSettings,
 } from './settings.ts';
 import { readState, writeState, STATE_FILE } from './state.ts';
 import { PROMPT_VARS, areYouThereText, textLanguage, type TextLanguage } from './text.ts';
@@ -132,15 +132,15 @@ export class AreYouThereWorld implements World {
   private lastRadarDecision: RadarDecision | null = null;
   /** 已经推过的那段「路过」，用结束时刻去重。 */
   private lastPassingAt: number | null = null;
-  /** 雷达的调参项：存在 World 自己的文件里，由「雷达」页签读写。 */
-  private radarSettings: RadarSettings;
+  /** 判定细节与雷达调参：存在 World 自己的文件里，由「设置」页签读写。 */
+  private settings: WorldSettings;
   private readonly injectedIdle: IdleSource | null;
   private readonly injectedRadar: RadarSource | null;
   private readonly confirmProbe: ConfirmProbe;
 
   constructor(private readonly opts: AreYouThereWorldOptions) {
     this.state = readState(this.stateFile);
-    this.radarSettings = readRadarSettings(this.opts.dataDir, this.opts.cfg);
+    this.settings = readSettings(this.opts.dataDir, this.opts.cfg);
     this.injectedIdle = opts.idle ?? null;
     this.injectedRadar = opts.radar ?? null;
     this.confirmProbe = opts.confirm ?? defaultConfirmProbe;
@@ -204,9 +204,9 @@ export class AreYouThereWorld implements World {
       ...(badges.length > 0 ? { badges } : {}),
       lamps: this.lamps(language),
       panels: [{
-        id: 'radar',
-        title: t.panel.radarTitle,
-        description: t.panel.radarDescription,
+        id: 'settings',
+        title: t.panel.title,
+        description: t.panel.description,
         getMethods: ['status', 'save'],
       }],
       invoke: (panel: string, method: string, args: unknown[]) => this.panelInvoke(panel, method, args, language),
@@ -279,7 +279,7 @@ export class AreYouThereWorld implements World {
       return { enabled: true, tone: 'bad', text: t.panel.stale, hint: hint(t.tool.radarStale) };
     }
 
-    const thresholds = settingsThresholds(this.radarSettings);
+    const thresholds = settingsThresholds(this.settings);
     const decision = decideRadar(reading, now, thresholds);
     const cm = reading.cm !== null ? String(reading.cm) : '';
     if (decision !== null && decision.absent) {
@@ -320,50 +320,71 @@ export class AreYouThereWorld implements World {
   }
 
   /**
-   * 面板上的那张表单。标签、单位、范围都由服务端算好，前端只管画，两边不会各写一套文案。
+   * 面板上的表单。标签、单位、范围都由服务端算好，前端只管画，两边不会各写一套文案。
+   *
+   * 「关键词」只在「看前台窗口」打开时才给：没启用就折叠，这是平台本身给不了的。
    */
-  private panelFields(language: Language): Array<Record<string, unknown>> {
+  private panelSections(language: Language): Array<Record<string, unknown>> {
     const t = areYouThereText(language);
     const c = t.config;
-    const s = this.radarSettings;
+    const s = this.settings;
+    const judge: Array<Record<string, unknown>> = [
+      { key: 'checkForeground', label: t.panel.fieldCheckForeground, kind: 'bool', value: s.checkForeground, hint: c.checkForeground.description },
+      ...(s.checkForeground
+        ? [{ key: 'mediaKeywords', label: t.panel.fieldMediaKeywords, kind: 'text', value: s.mediaKeywords, hint: c.mediaKeywords.description }]
+        : []),
+      { key: 'checkScreen', label: t.panel.fieldCheckScreen, kind: 'bool', value: s.checkScreen, hint: c.checkScreen.description },
+    ];
+    const radar: Array<Record<string, unknown>> = this.cfg.radarEnabled
+      ? [
+        { key: 'radarPort', label: t.panel.fieldPort, kind: 'text', value: s.radarPort },
+        {
+          key: 'radarMaxDistance', label: t.panel.fieldMaxDistance, kind: 'int',
+          value: s.radarMaxDistance, min: 0, max: MAX_RADAR_MAX_DISTANCE, suffix: c.radarMaxDistance.suffix,
+        },
+        {
+          key: 'radarMaxCm', label: t.panel.fieldMaxCm, kind: 'int',
+          value: s.radarMaxCm, min: MIN_RADAR_MAX_CM, max: MAX_RADAR_MAX_CM, suffix: c.radarMaxCm.suffix,
+        },
+        {
+          key: 'radarAbsentSeconds', label: t.panel.fieldAbsentSeconds, kind: 'int',
+          value: s.radarAbsentSeconds, min: 1, max: MAX_RADAR_ABSENT_SECONDS, suffix: c.radarAbsentSeconds.suffix,
+        },
+        {
+          key: 'radarBackSeconds', label: t.panel.fieldBackSeconds, kind: 'int',
+          value: s.radarBackSeconds, min: 0, max: MAX_RADAR_BACK_SECONDS, suffix: c.radarBackSeconds.suffix,
+        },
+        { key: 'radarPassByNotify', label: t.panel.fieldPassByNotify, kind: 'bool', value: s.radarPassByNotify },
+        {
+          key: 'radarQuietSeconds', label: t.panel.fieldQuietSeconds, kind: 'int',
+          value: s.radarQuietSeconds, min: 0, max: MAX_RADAR_QUIET_SECONDS, suffix: c.radarQuietSeconds.suffix,
+        },
+      ]
+      : [];
     return [
-      { key: 'port', label: t.panel.fieldPort, kind: 'text', value: s.port },
+      { id: 'judge', title: t.panel.judgeTitle, description: t.panel.judgeDescription, fields: judge },
       {
-        key: 'maxDistance', label: t.panel.fieldMaxDistance, kind: 'int',
-        value: s.maxDistance, min: 0, max: MAX_RADAR_MAX_DISTANCE, suffix: c.radarMaxDistance.suffix,
-      },
-      {
-        key: 'maxCm', label: t.panel.fieldMaxCm, kind: 'int',
-        value: s.maxCm, min: MIN_RADAR_MAX_CM, max: MAX_RADAR_MAX_CM, suffix: c.radarMaxCm.suffix,
-      },
-      {
-        key: 'absentSeconds', label: t.panel.fieldAbsentSeconds, kind: 'int',
-        value: s.absentSeconds, min: 1, max: MAX_RADAR_ABSENT_SECONDS, suffix: c.radarAbsentSeconds.suffix,
-      },
-      {
-        key: 'backSeconds', label: t.panel.fieldBackSeconds, kind: 'int',
-        value: s.backSeconds, min: 0, max: MAX_RADAR_BACK_SECONDS, suffix: c.radarBackSeconds.suffix,
-      },
-      { key: 'passByNotify', label: t.panel.fieldPassByNotify, kind: 'bool', value: s.passByNotify },
-      {
-        key: 'quietSeconds', label: t.panel.fieldQuietSeconds, kind: 'int',
-        value: s.quietSeconds, min: 0, max: MAX_RADAR_QUIET_SECONDS, suffix: c.radarQuietSeconds.suffix,
+        id: 'radar',
+        title: t.panel.radarTitle,
+        description: t.panel.radarDescription,
+        fields: radar,
+        note: this.cfg.radarEnabled ? '' : t.panel.radarOff,
+        status: this.radarStatus(language),
       },
     ];
   }
 
-  /** 面板要的全部东西：状态一行、表单一份、按钮文案。 */
+  /** 面板要的全部东西：两张卡、状态、提示文案。 */
   private panelPayload(language: Language): Record<string, unknown> {
     const t = areYouThereText(language);
     return {
-      ...this.radarStatus(language),
-      fields: this.panelFields(language),
-      labels: { save: t.panel.save, saved: t.panel.saved },
+      sections: this.panelSections(language),
+      labels: { saved: t.panel.saved, failed: t.panel.saveFailed(''), status: t.panel.status },
     };
   }
 
   /**
-   * World 页面板的方法。`radar.status` 读状态与当前调参项，`radar.save` 存一份新的。
+   * World 页面板的方法。`status` 读一遍，`save` 收一部分改动。
    *
    * 串口或模块距离改了就把读串口的子进程重启一次，否则改完要等下一次 World 启动才生效。
    */
@@ -373,13 +394,14 @@ export class AreYouThereWorld implements World {
     args: unknown[],
     language: Language,
   ): Promise<unknown> {
-    if (panel !== 'radar') throw new Error(`no such panel: ${panel}`);
+    if (panel !== 'settings') throw new Error(`no such panel: ${panel}`);
     if (method === 'status') return this.panelPayload(language);
     if (method === 'save') {
-      const next = clampRadarSettings((args?.[0] ?? {}) as Partial<RadarSettings>, this.radarSettings);
-      writeRadarSettings(this.opts.dataDir, next);
-      const reconnect = next.port !== this.radarSettings.port || next.maxDistance !== this.radarSettings.maxDistance;
-      this.radarSettings = next;
+      const next = clampSettings((args?.[0] ?? {}) as Partial<WorldSettings>, this.settings);
+      writeSettings(this.opts.dataDir, next);
+      const reconnect = next.radarPort !== this.settings.radarPort
+        || next.radarMaxDistance !== this.settings.radarMaxDistance;
+      this.settings = next;
       if (reconnect) {
         this.radar?.stop();
         this.radar = null;
@@ -463,16 +485,16 @@ export class AreYouThereWorld implements World {
       return null;
     }
     if (this.injectedRadar !== null) return this.injectedRadar;
-    const key = `${this.radarSettings.port}|${this.radarSettings.maxDistance}`;
+    const key = `${this.settings.port}|${this.settings.maxDistance}`;
     if (this.radar !== null && this.radarKey !== key) {
       this.radar.stop();
       this.radar = null;
     }
     if (this.radar === null) {
       this.radar = new RadarTracker({
-        port: this.radarSettings.port,
-        maxDistance: this.radarSettings.maxDistance,
-        maxCm: () => this.radarSettings.maxCm,
+        port: this.settings.port,
+        maxDistance: this.settings.maxDistance,
+        maxCm: () => this.settings.maxCm,
       });
       this.radar.start();
       this.radarKey = key;
@@ -513,12 +535,12 @@ export class AreYouThereWorld implements World {
 
       const radarSource = this.ensureRadar();
       const radarReading = radarSource !== null ? this.currentRadar() : null;
-      const radarDecision = decideRadar(radarReading, Date.now(), settingsThresholds(this.radarSettings));
+      const radarDecision = decideRadar(radarReading, Date.now(), settingsThresholds(this.settings));
       this.lastRadar = radarReading;
       this.lastRadarDecision = radarDecision;
       this.maybePassBy(radarReading);
 
-      let reading = decidePresence(locked, idle?.idleMs ?? null, threshold, radarDecision, settingsQuietMs(this.radarSettings));
+      let reading = decidePresence(locked, idle?.idleMs ?? null, threshold, radarDecision, settingsQuietMs(this.settings));
       if (reading.away && reading.reason === 'idle' && this.state.away !== true) {
         const verdict = await this.confirmIdle(reading);
         reading = verdict.reading;
@@ -553,12 +575,12 @@ export class AreYouThereWorld implements World {
     const now = Date.now();
     if (this.verdict !== null && now - this.verdict.at < VERDICT_TTL_MS) return this.verdict;
 
-    const cfg = this.cfg;
-    const keywords = splitKeywords(cfg.mediaKeywords ?? '');
+    const settings = this.settings;
+    const keywords = splitKeywords(settings.mediaKeywords);
     let foreground: string | null = null;
     let percent: number | null = null;
 
-    if (cfg.checkForeground) {
+    if (settings.checkForeground) {
       const info = await this.confirmProbe.foreground();
       if (info !== null) {
         foreground = info.process;
@@ -567,7 +589,7 @@ export class AreYouThereWorld implements World {
         }
       }
     }
-    if (cfg.checkScreen) {
+    if (settings.checkScreen) {
       percent = await this.confirmProbe.screen();
       if (percent !== null && percent >= SCREEN_CHANGED_PERCENT) {
         return { at: now, reading: { away: false, reason: null }, hit: 'screen', foreground, percent };
@@ -623,7 +645,7 @@ export class AreYouThereWorld implements World {
     if (reading.streakEndedAt === null || reading.streakMs === null) return;
     if (this.lastPassingAt === reading.streakEndedAt) return;
     if (this.state.away !== true) return;
-    if (reading.streakMs >= settingsThresholds(this.radarSettings).backMs) return;
+    if (reading.streakMs >= settingsThresholds(this.settings).backMs) return;
 
     this.lastPassingAt = reading.streakEndedAt;
     const text = this.t.event.passBy(
@@ -697,7 +719,7 @@ export class AreYouThereWorld implements World {
     if (!reading.linked) return t.tool.radarDisconnected(reading.problem || 'unknown');
 
     const now = Date.now();
-    const thresholds = settingsThresholds(this.radarSettings);
+    const thresholds = settingsThresholds(this.settings);
     const decision = decideRadar(reading, now, thresholds);
     const cm = reading.cm !== null ? String(reading.cm) : '';
     if (decision !== null && decision.absent) {
@@ -715,13 +737,13 @@ export class AreYouThereWorld implements World {
   private verdictLine(): string {
     const t = this.t;
     const verdict = this.verdict;
-    if (!this.cfg.checkForeground && !this.cfg.checkScreen) return t.tool.verdictOff;
+    if (!this.settings.checkForeground && !this.settings.checkScreen) return t.tool.verdictOff;
     if (verdict === null) return t.tool.verdictOff;
     if (verdict.hit === 'foreground' && verdict.foreground !== null) return t.tool.verdictForegroundHit(verdict.foreground);
     if (verdict.hit === 'screen' && verdict.percent !== null) return t.tool.verdictScreenChanged(`${verdict.percent}%`);
     if (verdict.percent !== null) return t.tool.verdictScreenStill(`${verdict.percent}%`);
     if (verdict.foreground !== null) return t.tool.verdictForegroundMiss(verdict.foreground);
-    return this.cfg.checkScreen ? t.tool.verdictScreenFailed : t.tool.verdictForegroundFailed;
+    return this.settings.checkScreen ? t.tool.verdictScreenFailed : t.tool.verdictForegroundFailed;
   }
 
   /**

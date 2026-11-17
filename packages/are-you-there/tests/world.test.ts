@@ -82,6 +82,17 @@ interface RadarView {
   hint: string;
 }
 
+interface PanelView {
+  sections: Array<{
+    id: string;
+    title: string;
+    fields: Array<{ key: string; kind: string; value: unknown; suffix?: string }>;
+    note?: string;
+    status?: RadarView;
+  }>;
+  labels: { saved: string; failed: string; status: string };
+}
+
 interface PanelDecl {
   panels: Array<{ id: string; title: string; description?: string; getMethods?: string[] }>;
   invoke: (panel: string, method: string, args?: unknown[]) => Promise<unknown>;
@@ -418,29 +429,50 @@ describe('world', () => {
     await world.stop();
   });
 
-  it('answers the radar panel with one green row while it works', async () => {
+  it('answers the settings panel with two cards', async () => {
     const { world, host } = setup({ radar: { presentMs: 60_000 } });
     await world.start(host as never);
     await settle();
     const decl = panelDecl(world);
-    expect(decl.panels.map((panel) => panel.id)).toEqual(['radar']);
-    expect(decl.panels[0]!.title).toBe('雷达');
+    expect(decl.panels.map((panel) => panel.id)).toEqual(['settings']);
+    expect(decl.panels[0]!.title).toBe('设置');
 
-    const view = (await decl.invoke('radar', 'status')) as RadarView;
-    expect(view.enabled).toBe(true);
-    expect(view.tone).toBe('ok');
-    expect(view.text).toBe('正常工作，有人');
-    expect(view.hint).toContain('79');
+    const view = (await decl.invoke('settings', 'status')) as PanelView;
+    expect(view.sections.map((section) => section.id)).toEqual(['judge', 'radar']);
+    expect(view.labels.status).toBe('状态');
+    const radar = view.sections[1]!;
+    expect(radar.status?.enabled).toBe(true);
+    expect(radar.status?.text).toBe('正常工作，有人');
+    expect(radar.status?.hint).toContain('79');
+    expect(radar.fields.map((field) => field.key)).toEqual([
+      'radarPort', 'radarMaxDistance', 'radarMaxCm', 'radarAbsentSeconds',
+      'radarBackSeconds', 'radarPassByNotify', 'radarQuietSeconds',
+    ]);
     await world.stop();
   });
 
-  it('tells the panel the radar is off, so the row hides itself', async () => {
+  it('folds the radar fields away while the switch is off', async () => {
     const { world, host } = setup({});
     await world.start(host as never);
     await settle();
-    const view = (await panelDecl(world).invoke('radar', 'status')) as RadarView;
-    expect(view.enabled).toBe(false);
-    expect(view.text).toBe('');
+    const view = (await panelDecl(world).invoke('settings', 'status')) as PanelView;
+    const radar = view.sections[1]!;
+    expect(radar.fields).toEqual([]);
+    expect(radar.note).toBe('没打开「用毫米波雷达判定」，这里没有可调项。');
+    expect(radar.status?.enabled).toBe(false);
+    await world.stop();
+  });
+
+  it('folds the keyword box behind the foreground switch', async () => {
+    const { world, host } = setup({ checkForeground: false });
+    await world.start(host as never);
+    await settle();
+    const before = (await panelDecl(world).invoke('settings', 'status')) as PanelView;
+    expect(before.sections[0]!.fields.map((field) => field.key)).toEqual(['checkForeground', 'checkScreen']);
+
+    const after = (await panelDecl(world).invoke('settings', 'save', [{ checkForeground: true }])) as PanelView;
+    expect(after.sections[0]!.fields.map((field) => field.key))
+      .toEqual(['checkForeground', 'mediaKeywords', 'checkScreen']);
     await world.stop();
   });
 
@@ -468,25 +500,18 @@ describe('world', () => {
     expect(badgesOf(setup({}).world)).toEqual([]);
   });
 
-  it('hands the panel the seven knobs and stores what it saves', async () => {
+  it('stores what the panel saves in its own file, not in the config', async () => {
     const { world, host, dataDir } = setup({ radar: { presentMs: 60_000 } });
     await world.start(host as never);
     await settle();
 
-    const first = (await panelDecl(world).invoke('radar', 'status')) as RadarView & {
-      fields: Array<{ key: string; kind: string; value: unknown; suffix?: string }>;
-      labels: { save: string; saved: string };
-    };
-    expect(first.fields.map((field) => field.key)).toEqual([
-      'port', 'maxDistance', 'maxCm', 'absentSeconds', 'backSeconds', 'passByNotify', 'quietSeconds',
-    ]);
+    const first = (await panelDecl(world).invoke('settings', 'status')) as PanelView;
     expect(first.labels.saved).toBe('已保存');
 
-    const saved = (await panelDecl(world).invoke('radar', 'save', [{ maxCm: 90, backSeconds: 4 }])) as typeof first;
-    expect(saved.fields.find((field) => field.key === 'maxCm')!.value).toBe(90);
-    // 存进 World 自己的文件，不进 config.json
-    const file = JSON.parse(readFileSync(join(dataDir, 'are-you-there-radar.json'), 'utf8'));
-    expect(file).toMatchObject({ maxCm: 90, backSeconds: 4 });
+    const saved = (await panelDecl(world).invoke('settings', 'save', [{ radarMaxCm: 90, radarBackSeconds: 4 }])) as PanelView;
+    expect(saved.sections[1]!.fields.find((field) => field.key === 'radarMaxCm')!.value).toBe(90);
+    const file = JSON.parse(readFileSync(join(dataDir, 'are-you-there-settings.json'), 'utf8'));
+    expect(file).toMatchObject({ radarMaxCm: 90, radarBackSeconds: 4 });
     expect(readFileSync(join(dataDir, 'are-you-there.json'), 'utf8').includes('radarMaxCm')).toBe(false);
     await world.stop();
   });

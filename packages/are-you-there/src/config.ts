@@ -152,24 +152,6 @@ export function areYouThereConfigGroup(language: Language = 'zh'): ConfigGroup {
           description: c.checkLock.description,
           'x-hot': true,
         },
-        [`${K}.checkForeground`]: {
-          type: 'boolean',
-          title: c.checkForeground.title,
-          description: c.checkForeground.description,
-          'x-hot': true,
-        },
-        [`${K}.mediaKeywords`]: {
-          type: 'string',
-          title: c.mediaKeywords.title,
-          description: c.mediaKeywords.description,
-          'x-hot': true,
-        },
-        [`${K}.checkScreen`]: {
-          type: 'boolean',
-          title: c.checkScreen.title,
-          description: c.checkScreen.description,
-          'x-hot': true,
-        },
         [`${K}.radarEnabled`]: {
           type: 'boolean',
           title: c.radarEnabled.title,

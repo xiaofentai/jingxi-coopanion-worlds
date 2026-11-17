@@ -1,133 +1,165 @@
 /**
- * 「雷达」面板的前端：上面一行状态，下面是那几项调参，最后是保存。
+ * 「设置」面板：判定细节与雷达调参，各一张可折叠的卡。
  *
  * 手写的 ESM，不经打包——控制台用浏览器原生 `import()` 加载这个文件，只要求默认导出
  * `{ panels: { <id>: { mount(ctx) } } }`。所以这里不能写 TS、也不能 import 本地模块。
  *
- * 文案、单位、范围都由 World 算好（`radar.status`），这里只负责画。没打开雷达时整块隐藏，
- * 页签标题旁边那句说明会解释为什么是空的。
+ * 长相完全复用控制台自己的：卡是 `ui.foldSheet`，行是设置页那套 `companion-row / configline /
+ * tfield / tunit`，控件是 `ui.input` / `ui.checkbox`。字段、标签、单位、范围都由 World 算好
+ * （读 `status`），这里只负责画和把改动存回去。
  */
-const COLORS = { ok: '#3ba55d', warn: '#d9a441', bad: '#d9534f', off: '#8a8a8a' };
-const POLL_MS = 2000;
-const INPUT_CSS = 'width:96px;padding:2px 6px;border-radius:4px;border:1px solid rgba(128,128,128,.45);'
-  + 'background:transparent;color:inherit;font:inherit';
-const MUTED_CSS = 'font-size:12px;color:var(--muted,#8a8a8a)';
+const SAVE_DEBOUNCE_MS = 600;
+const POLL_MS = 3000;
 
-function make(doc, tag, text) {
-  const el = doc.createElement(tag);
-  if (text !== undefined) el.textContent = text;
-  return el;
-}
+/** `tone` → `ui.pill` 认的那三种。 */
+const TONE = { ok: 'on', off: 'off' };
 
-const radarPanel = {
+const settingsPanel = {
   mount(ctx) {
-    const doc = ctx.root.ownerDocument;
+    const ui = ctx.ui;
+    const root = ctx.root;
 
-    const wrap = make(doc, 'div');
-    wrap.style.cssText = 'display:flex;flex-direction:column;gap:14px;max-width:620px;padding:6px 2px';
-    ctx.root.appendChild(wrap);
+    const message = ui.msgline('');
+    // 卡与卡之间的间距交给容器：面板的 root 不管这个，`.measure > .sheet + .sheet` 那套也用不上。
+    const cards = ui.h('div');
+    cards.style.cssText = 'display:grid;gap:16px';
+    root.append(cards, message);
 
-    const status = make(doc, 'div');
-    status.style.cssText = 'display:flex;align-items:center;gap:8px';
-    const dot = make(doc, 'span');
-    dot.style.cssText = 'width:10px;height:10px;border-radius:50%;flex:0 0 auto;background:#8a8a8a';
-    const text = make(doc, 'span');
-    const hint = make(doc, 'span');
-    hint.style.cssText = MUTED_CSS;
-    status.append(dot, text, hint);
+    /** field key → 读控件当前值；渲染时重建。 */
+    let readers = new Map();
+    /** field key → 把新值写回控件；渲染时重建。 */
+    let writers = new Map();
+    /** 上一次渲染的字段集合；变了才重建，否则只同步取值，免得打字时丢焦点。 */
+    let signature = '';
+    let timer = null;
 
-    const form = make(doc, 'div');
-    form.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:8px 12px;align-items:center';
-
-    const actions = make(doc, 'div');
-    actions.style.cssText = 'display:flex;align-items:center;gap:10px';
-    const save = make(doc, 'button');
-    save.type = 'button';
-    const message = make(doc, 'span');
-    message.style.cssText = MUTED_CSS;
-    actions.append(save, message);
-
-    wrap.append(status, form, actions);
-
-    /** 当前表单项与它们的输入框。 */
-    let fields = [];
-    let inputs = new Map();
-    let labels = { save: 'Save', saved: 'Saved' };
-    /** 用户改过还没保存：这期间轮询只动状态行，不覆盖输入框。 */
-    let dirty = false;
+    const signOf = (payload) => payload.sections
+      .map((section) => `${section.id}:${section.fields.map((field) => field.key).join(',')}`)
+      .join('|');
 
     const collect = () => {
       const out = {};
-      for (const field of fields) {
-        const el = inputs.get(field.key);
-        if (!el) continue;
-        if (field.kind === 'bool') out[field.key] = el.checked;
-        else if (field.kind === 'int') {
-          const value = Number(el.value);
-          if (Number.isFinite(value)) out[field.key] = value;
-        } else out[field.key] = el.value;
+      for (const [key, read] of readers) {
+        const value = read();
+        if (value !== undefined) out[key] = value;
       }
       return out;
     };
 
-    const syncValues = (payload) => {
-      for (const field of payload.fields || []) {
-        const el = inputs.get(field.key);
-        if (!el) continue;
-        if (field.kind === 'bool') el.checked = !!field.value;
-        else if (String(el.value) !== String(field.value ?? '')) el.value = String(field.value ?? '');
+    const save = async () => {
+      let next;
+      try {
+        next = await ctx.invoke('save', [collect()]);
+      } catch (error) {
+        message.textContent = String((error && error.message) || error);
+        return;
+      }
+      message.textContent = (next.labels && next.labels.saved) || '';
+      apply(next);
+    };
+
+    const queueSave = () => {
+      if (timer !== null) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        void save();
+      }, SAVE_DEBOUNCE_MS);
+    };
+
+    /** 设置页那样的两列行：左边标签，右边控件（可带单位），下面一行说明。 */
+    const fieldRow = (field) => {
+      const row = ui.h('div', 'companion-row configrow');
+      const label = ui.h('div', 'companion-label', field.label);
+      const control = ui.h('div', 'companion-control');
+      const line = ui.h('div', 'configline');
+      control.append(line);
+
+      if (field.kind === 'bool') {
+        const box = ui.checkbox('', { checked: !!field.value, onChange: () => queueSave() });
+        box.input.setAttribute('aria-label', field.label);
+        line.classList.add('companion-switchbox');
+        line.append(box.el);
+        readers.set(field.key, () => box.checked);
+        writers.set(field.key, (value) => box.setChecked(!!value));
+      } else {
+        const wrap = ui.h('div', 'tfield');
+        const input = ui.input({
+          type: field.kind === 'int' ? 'number' : 'text',
+          value: field.value === undefined || field.value === null ? '' : String(field.value),
+          onInput: () => { message.textContent = ''; },
+          onChange: () => queueSave(),
+        });
+        if (field.kind === 'int') {
+          if (field.min !== undefined) input.min = String(field.min);
+          if (field.max !== undefined) input.max = String(field.max);
+        }
+        wrap.append(input);
+        line.append(wrap);
+        if (field.suffix) line.append(ui.h('span', 'tunit', field.suffix));
+        readers.set(field.key, () => {
+          if (field.kind !== 'int') return input.value;
+          const n = Number(input.value);
+          return input.value !== '' && Number.isFinite(n) ? n : undefined;
+        });
+        writers.set(field.key, (value) => {
+          const text = value === undefined || value === null ? '' : String(value);
+          if (input.value !== text) input.value = text;
+        });
+      }
+
+      if (field.hint) control.append(ui.h('p', 'home-note', field.hint));
+      row.append(label, control);
+      return row;
+    };
+
+    /** 雷达那张卡顶上的一行状态：一颗药丸 + 端口与读数。 */
+    const statusRow = (status, label) => {
+      const row = ui.h('div', 'companion-row configrow');
+      const control = ui.h('div', 'companion-control');
+      const line = ui.h('div', 'configline');
+      if (status.enabled) {
+        line.append(ui.pill(status.text || '—', TONE[status.tone] || 'plain'));
+        if (status.hint) line.append(ui.h('span', 'tdesc', status.hint));
+      } else {
+        line.append(ui.h('span', 'tdesc', status.text || '—'));
+      }
+      control.append(line);
+      row.append(ui.h('div', 'companion-label', label), control);
+      return row;
+    };
+
+    const render = (payload) => {
+      readers = new Map();
+      writers = new Map();
+      cards.replaceChildren();
+      for (const section of payload.sections) {
+        const card = ui.foldSheet(section.id, {
+          title: section.title,
+          ...(section.description ? { desc: section.description } : {}),
+          defaultOpen: true,
+        });
+        cards.append(card.el);
+        if (section.status) card.body.append(statusRow(section.status, payload.labels.status));
+        for (const field of section.fields) card.body.append(fieldRow(field));
+        if (!section.fields.length && section.note) card.body.append(ui.h('p', 'home-note', section.note));
+      }
+      signature = signOf(payload);
+    };
+
+    /** 只把值写回现有控件：不重建，焦点与滚动都在原处。 */
+    const sync = (payload) => {
+      for (const section of payload.sections) {
+        for (const field of section.fields) {
+          const write = writers.get(field.key);
+          if (write) write(field.value);
+        }
       }
     };
 
-    const paintStatus = (payload) => {
-      const on = !!payload && payload.enabled === true;
-      status.style.display = on ? 'flex' : 'none';
-      form.style.display = on ? 'grid' : 'none';
-      actions.style.display = on ? 'flex' : 'none';
-      if (!on) return;
-      dot.style.background = COLORS[payload.tone] || COLORS.off;
-      text.textContent = payload.text || '';
-      hint.textContent = payload.hint || '';
-    };
-
-    const buildForm = (payload) => {
-      fields = Array.isArray(payload.fields) ? payload.fields : [];
-      inputs = new Map();
-      form.replaceChildren();
-      labels = payload.labels || labels;
-      save.textContent = labels.save;
-      for (const field of fields) {
-        const label = make(doc, 'label', field.label || field.key);
-        label.style.cssText = 'font-size:13px';
-        const box = make(doc, 'div');
-        box.style.cssText = 'display:flex;align-items:center;gap:6px;justify-self:end';
-        let el;
-        if (field.kind === 'bool') {
-          el = make(doc, 'input');
-          el.type = 'checkbox';
-          el.checked = !!field.value;
-        } else {
-          el = make(doc, 'input');
-          el.type = field.kind === 'int' ? 'number' : 'text';
-          if (field.kind === 'int') {
-            if (field.min !== undefined) el.min = String(field.min);
-            if (field.max !== undefined) el.max = String(field.max);
-          }
-          el.value = field.value === undefined || field.value === null ? '' : String(field.value);
-          el.style.cssText = INPUT_CSS;
-        }
-        el.addEventListener('input', () => { dirty = true; message.textContent = ''; });
-        el.addEventListener('change', () => { dirty = true; message.textContent = ''; });
-        inputs.set(field.key, el);
-        box.appendChild(el);
-        if (field.suffix) {
-          const unit = make(doc, 'span', field.suffix);
-          unit.style.cssText = MUTED_CSS;
-          box.appendChild(unit);
-        }
-        form.append(label, box);
-      }
-      dirty = false;
+    const apply = (payload) => {
+      if (!payload || !Array.isArray(payload.sections)) return;
+      if (signOf(payload) !== signature) render(payload);
+      else sync(payload);
     };
 
     const refresh = async () => {
@@ -135,37 +167,15 @@ const radarPanel = {
       try {
         payload = await ctx.invoke('status');
       } catch (error) {
-        // 读不到就藏起来，别把上一次的读数当成现在
-        status.style.display = 'none';
-        form.style.display = 'none';
-        actions.style.display = 'none';
-        console.error('[are-you-there] could not read the radar status', error);
+        console.error('[are-you-there] could not read the settings', error);
         return;
       }
-      paintStatus(payload);
-      if (!payload || payload.enabled !== true) return;
-      if (inputs.size === 0) buildForm(payload);
-      else if (!dirty) syncValues(payload);
+      apply(payload);
     };
-
-    save.addEventListener('click', async () => {
-      save.disabled = true;
-      try {
-        const payload = await ctx.invoke('save', [collect()]);
-        dirty = false;
-        paintStatus(payload);
-        if (payload && payload.enabled === true) buildForm(payload);
-        message.textContent = labels.saved;
-      } catch (error) {
-        message.textContent = String((error && error.message) || error);
-      } finally {
-        save.disabled = false;
-      }
-    });
 
     void refresh();
     ctx.interval(() => void refresh(), POLL_MS);
   },
 };
 
-export default { panels: { radar: radarPanel } };
+export default { panels: { settings: settingsPanel } };

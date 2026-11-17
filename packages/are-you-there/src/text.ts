@@ -102,10 +102,16 @@ export interface AreYouThereText {
     centimetres: (cm: string) => string;
     none: string;
   };
-  /** World 页里的「雷达」面板：一颗点加一句话，再加那几项调参。 */
+  /** World 页里的「设置」面板：判定细节与雷达调参，各一张可折叠的卡。 */
   panel: {
+    title: string;
+    description: string;
+    judgeTitle: string;
+    judgeDescription: string;
     radarTitle: string;
     radarDescription: string;
+    radarOff: string;
+    status: string;
     present: string;
     absent: string;
     warming: string;
@@ -113,6 +119,9 @@ export interface AreYouThereText {
     far: string;
     down: string;
     starting: string;
+    fieldCheckForeground: string;
+    fieldMediaKeywords: string;
+    fieldCheckScreen: string;
     fieldPort: string;
     fieldMaxDistance: string;
     fieldMaxCm: string;
@@ -120,7 +129,6 @@ export interface AreYouThereText {
     fieldBackSeconds: string;
     fieldPassByNotify: string;
     fieldQuietSeconds: string;
-    save: string;
     saved: string;
     saveFailed: (reason: string) => string;
   };
@@ -305,8 +313,17 @@ const zh: AreYouThereText = {
     none: '—',
   },
   panel: {
+    title: '设置',
+    description: '判定细节与雷达调参。开关都在「配置」页签里，这里只放它们展开之后的那几项。',
+    judgeTitle: '空闲判定',
+    judgeDescription: '键鼠空闲到阈值后，先看一眼前台窗口，再看屏幕在不在变；两项都没认定才判离开。',
+    radarOff: '没打开「用毫米波雷达判定」，这里没有可调项。',
+    status: '状态',
+    fieldCheckForeground: '空闲时看一眼前台窗口',
+    fieldMediaKeywords: '认作「在看」的关键词',
+    fieldCheckScreen: '空闲时比较两帧画面',
     radarTitle: '雷达',
-    radarDescription: 'USB 串口上的那颗 HLK-LD2402：上面一行是它的状态，下面是它那几项调参。开关在「配置」页签里。',
+    radarDescription: 'USB 串口上的那颗 HLK-LD2402：上面一行是它的状态，下面是它那几项调参。',
     present: '正常工作，有人',
     absent: '正常工作，无人',
     warming: '已连接，还没在范围内见到人',
@@ -321,7 +338,6 @@ const zh: AreYouThereText = {
     fieldBackSeconds: '多久有人才算回来',
     fieldPassByNotify: '有人经过时推事件',
     fieldQuietSeconds: '键鼠还热着就不信雷达',
-    save: '保存',
     saved: '已保存',
     saveFailed: (reason) => `保存失败：${reason}`,
   },
@@ -503,8 +519,17 @@ const en: AreYouThereText = {
     none: '—',
   },
   panel: {
+    title: 'Settings',
+    description: 'How the idle verdict is made, plus the radar knobs. The switches themselves stay on the "Config" tab.',
+    judgeTitle: 'Idle verdict',
+    judgeDescription: 'Once the keyboard and mouse reach the idle threshold, the foreground window is checked first and the screen second; only if neither counts as watching do they count as away.',
+    radarOff: '"Use the mmWave radar" is off, so there is nothing to tune here.',
+    status: 'State',
+    fieldCheckForeground: 'Look at the foreground window when idle',
+    fieldMediaKeywords: 'Keywords that count as watching',
+    fieldCheckScreen: 'Compare two frames when idle',
     radarTitle: 'Radar',
-    radarDescription: 'The HLK-LD2402 on the USB serial port: the line on top is its state, below are its own settings. The on/off switch is on the "Config" tab.',
+    radarDescription: 'The HLK-LD2402 on the USB serial port: the line on top is its state, below are its own settings.',
     present: 'Working, someone at the desk',
     absent: 'Working, nobody at the desk',
     warming: 'Connected, but nobody has been in range yet',
@@ -519,7 +544,6 @@ const en: AreYouThereText = {
     fieldBackSeconds: 'Presence that counts as back',
     fieldPassByNotify: 'Raise an event when someone passes by',
     fieldQuietSeconds: 'Ignore the radar while the keyboard is warm',
-    save: 'Save',
     saved: 'Saved',
     saveFailed: (reason) => `Could not save: ${reason}`,
   },

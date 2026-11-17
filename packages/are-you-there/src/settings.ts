@@ -1,12 +1,12 @@
 /**
- * 雷达的调参项：存在 `<data>/radar-settings.json`，由「雷达」面板那一页读写。
+ * 判定细节与雷达的那几项：存在 `<data>/are-you-there-settings.json`，由「设置」面板读写。
  *
- * 为什么不放 config.json：World 的配置组会被控制台**全部**渲染进「配置」页签，平台没有「声明了
- * 但不显示」这种开关。要让这几项离开配置页，只能退出配置体系自己存——`radarEnabled` 留在配置里，
- * 其余六项在面板里改。
+ * 为什么不放 config.json：World 声明的配置组会被控制台**全部**渲染进「配置」页签，平台没有
+ * 「声明了但不显示」这种开关。要让这些项离开配置页，只能退出配置体系自己存——配置页只留
+ * 几个一句话能说清的开关。
  *
- * 首次运行时用配置里的同名键做初值（0.4.x 的用户把这些值写在 config.json 里），此后以本文件为准。
- * 整份写临时文件再改名，和 `state.ts` 一个路子。
+ * 首次运行时用配置里的同名键做初值（0.4.x/0.5.x 的用户把这些值写在 config.json 里），此后以本
+ * 文件为准。整份写临时文件再改名，和 `state.ts` 一个路子。
  */
 import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -20,23 +20,32 @@ import {
 import type { RadarThresholds } from './radar.ts';
 
 /** 放在 `ctx.dataDir` 里，以 World id 开头，不会和别的 World 撞。 */
-export const RADAR_SETTINGS_FILE = 'are-you-there-radar.json';
+export const SETTINGS_FILE = 'are-you-there-settings.json';
 
-export interface RadarSettings {
+/** 0.5.x 用的文件名；读到它就搬过来，省得用户白改一遍。 */
+export const LEGACY_SETTINGS_FILE = 'are-you-there-radar.json';
+
+export interface WorldSettings {
+  /** 空闲到阈值时看一眼前台窗口。 */
+  checkForeground: boolean;
+  /** 前台判定用的关键词，逗号分隔。 */
+  mediaKeywords: string;
+  /** 空闲到阈值时比较两帧画面。 */
+  checkScreen: boolean;
   /** 串口号；`auto` 表示每次连接时自己枚举。 */
-  port: string;
+  radarPort: string;
   /** 模块侧最大探测距离，0.1 m 单位；0 表示不动模块。 */
-  maxDistance: number;
+  radarMaxDistance: number;
   /** 软件侧上限，cm。 */
-  maxCm: number;
+  radarMaxCm: number;
   /** 雷达连续多久没测到人算离开，秒。 */
-  absentSeconds: number;
+  radarAbsentSeconds: number;
   /** 雷达连续测到人多久才算回来，秒。 */
-  backSeconds: number;
+  radarBackSeconds: number;
   /** 短暂经过推不推事件。 */
-  passByNotify: boolean;
+  radarPassByNotify: boolean;
   /** 雷达报没人时要求的键鼠安静时长，秒；0 表示不设这个门槛。 */
-  quietSeconds: number;
+  radarQuietSeconds: number;
 }
 
 const clampInt = (value: unknown, fallback: number, min: number, max: number): number => {
@@ -44,63 +53,71 @@ const clampInt = (value: unknown, fallback: number, min: number, max: number): n
   return Math.min(max, Math.max(min, raw));
 };
 
-const clampPort = (value: unknown): string => {
-  const raw = typeof value === 'string' ? value.trim() : '';
-  return raw === '' ? 'auto' : raw.slice(0, 32);
+const clampText = (value: unknown, fallback: string, max: number): string => {
+  if (typeof value !== 'string') return fallback;
+  const raw = value.trim();
+  return raw === '' ? fallback : raw.slice(0, max);
 };
 
 /** 把任意一份读数收进合法范围；面板提交什么都按这个过一遍。 */
-export function clampRadarSettings(value: Partial<RadarSettings> | null | undefined, fallback: RadarSettings): RadarSettings {
+export function clampSettings(value: Partial<WorldSettings> | null | undefined, fallback: WorldSettings): WorldSettings {
   const raw = value ?? {};
+  const pick = <K extends keyof WorldSettings>(key: K): unknown => raw[key];
   return {
-    port: raw.port === undefined ? fallback.port : clampPort(raw.port),
-    maxDistance: clampInt(raw.maxDistance, fallback.maxDistance, 0, MAX_RADAR_MAX_DISTANCE),
-    maxCm: clampInt(raw.maxCm, fallback.maxCm, MIN_RADAR_MAX_CM, MAX_RADAR_MAX_CM),
-    absentSeconds: clampInt(raw.absentSeconds, fallback.absentSeconds, 1, MAX_RADAR_ABSENT_SECONDS),
-    backSeconds: clampInt(raw.backSeconds, fallback.backSeconds, 0, MAX_RADAR_BACK_SECONDS),
-    passByNotify: typeof raw.passByNotify === 'boolean' ? raw.passByNotify : fallback.passByNotify,
-    quietSeconds: clampInt(raw.quietSeconds, fallback.quietSeconds, 0, MAX_RADAR_QUIET_SECONDS),
+    checkForeground: typeof pick('checkForeground') === 'boolean' ? raw.checkForeground! : fallback.checkForeground,
+    mediaKeywords: clampText(pick('mediaKeywords'), fallback.mediaKeywords, 2000),
+    checkScreen: typeof pick('checkScreen') === 'boolean' ? raw.checkScreen! : fallback.checkScreen,
+    radarPort: raw.radarPort === undefined ? fallback.radarPort : clampText(raw.radarPort, fallback.radarPort, 32),
+    radarMaxDistance: clampInt(pick('radarMaxDistance'), fallback.radarMaxDistance, 0, MAX_RADAR_MAX_DISTANCE),
+    radarMaxCm: clampInt(pick('radarMaxCm'), fallback.radarMaxCm, MIN_RADAR_MAX_CM, MAX_RADAR_MAX_CM),
+    radarAbsentSeconds: clampInt(pick('radarAbsentSeconds'), fallback.radarAbsentSeconds, 1, MAX_RADAR_ABSENT_SECONDS),
+    radarBackSeconds: clampInt(pick('radarBackSeconds'), fallback.radarBackSeconds, 0, MAX_RADAR_BACK_SECONDS),
+    radarPassByNotify: typeof pick('radarPassByNotify') === 'boolean' ? raw.radarPassByNotify! : fallback.radarPassByNotify,
+    radarQuietSeconds: clampInt(pick('radarQuietSeconds'), fallback.radarQuietSeconds, 0, MAX_RADAR_QUIET_SECONDS),
   };
 }
 
-/** 文件还不存在时的初值：配置里那几个同名键（0.4.x 写过的话就沿用）。 */
-export function seedRadarSettings(cfg: AreYouThereConfigSection): RadarSettings {
-  const pick = (value: unknown, fallback: number) => (typeof value === 'number' && Number.isFinite(value) ? value : fallback);
-  return clampRadarSettings({
-    port: radarPortName(cfg),
-    maxDistance: pick(cfg.radarMaxDistance, DEFAULT_RADAR_MAX_DISTANCE),
-    maxCm: pick(cfg.radarMaxCm, DEFAULT_RADAR_MAX_CM),
-    absentSeconds: pick(cfg.radarAbsentSeconds, DEFAULT_RADAR_ABSENT_SECONDS),
-    backSeconds: pick(cfg.radarBackSeconds, DEFAULT_RADAR_BACK_SECONDS),
-    passByNotify: typeof cfg.radarPassByNotify === 'boolean' ? cfg.radarPassByNotify : true,
-    quietSeconds: pick(cfg.radarQuietSeconds, DEFAULT_RADAR_QUIET_SECONDS),
-  }, {
-    port: 'auto',
-    maxDistance: DEFAULT_RADAR_MAX_DISTANCE,
-    maxCm: DEFAULT_RADAR_MAX_CM,
-    absentSeconds: DEFAULT_RADAR_ABSENT_SECONDS,
-    backSeconds: DEFAULT_RADAR_BACK_SECONDS,
-    passByNotify: true,
-    quietSeconds: DEFAULT_RADAR_QUIET_SECONDS,
-  });
+/** 文件还不存在时的初值：配置里那几个同名键。 */
+export function seedSettings(cfg: AreYouThereConfigSection): WorldSettings {
+  const num = (value: unknown, fallback: number) => (typeof value === 'number' && Number.isFinite(value) ? value : fallback);
+  const bool = (value: unknown, fallback: boolean) => (typeof value === 'boolean' ? value : fallback);
+  const base: WorldSettings = {
+    checkForeground: bool(cfg.checkForeground, false),
+    mediaKeywords: typeof cfg.mediaKeywords === 'string' && cfg.mediaKeywords !== '' ? cfg.mediaKeywords : '',
+    checkScreen: bool(cfg.checkScreen, false),
+    radarPort: radarPortName(cfg),
+    radarMaxDistance: num(cfg.radarMaxDistance, DEFAULT_RADAR_MAX_DISTANCE),
+    radarMaxCm: num(cfg.radarMaxCm, DEFAULT_RADAR_MAX_CM),
+    radarAbsentSeconds: num(cfg.radarAbsentSeconds, DEFAULT_RADAR_ABSENT_SECONDS),
+    radarBackSeconds: num(cfg.radarBackSeconds, DEFAULT_RADAR_BACK_SECONDS),
+    radarPassByNotify: bool(cfg.radarPassByNotify, true),
+    radarQuietSeconds: num(cfg.radarQuietSeconds, DEFAULT_RADAR_QUIET_SECONDS),
+  };
+  return clampSettings(base, base);
 }
 
-/** 读一份；文件坏了就用初值，不拦着 World 干活。 */
-export function readRadarSettings(dir: string, cfg: AreYouThereConfigSection): RadarSettings {
-  const seed = seedRadarSettings(cfg);
-  const file = join(dir, RADAR_SETTINGS_FILE);
-  if (!existsSync(file)) return seed;
+function load(file: string, seed: WorldSettings): WorldSettings | null {
+  if (!existsSync(file)) return null;
   try {
-    const raw = JSON.parse(readFileSync(file, 'utf8')) as Partial<RadarSettings>;
-    return clampRadarSettings(raw, seed);
+    return clampSettings(JSON.parse(readFileSync(file, 'utf8')) as Partial<WorldSettings>, seed);
   } catch (error) {
-    console.warn('[are-you-there] unreadable radar settings, falling back to the config', error);
+    console.warn('[are-you-there] unreadable settings, falling back to the seed', error);
     return seed;
   }
 }
 
-export function writeRadarSettings(dir: string, settings: RadarSettings): void {
-  const file = join(dir, RADAR_SETTINGS_FILE);
+/** 读一份；文件坏了就用初值，不拦着 World 干活。 */
+export function readSettings(dir: string, cfg: AreYouThereConfigSection): WorldSettings {
+  const seed = seedSettings(cfg);
+  const own = load(join(dir, SETTINGS_FILE), seed);
+  if (own !== null) return own;
+  // 0.5.x 把雷达那几项写在另一个文件里，读一次搬过来
+  const legacy = load(join(dir, LEGACY_SETTINGS_FILE), seed);
+  return legacy ?? seed;
+}
+
+export function writeSettings(dir: string, settings: WorldSettings): void {
+  const file = join(dir, SETTINGS_FILE);
   const tmp = `${file}.tmp`;
   const fd = openSync(tmp, 'w');
   try {
@@ -113,15 +130,15 @@ export function writeRadarSettings(dir: string, settings: RadarSettings): void {
 }
 
 /** 迟滞参数，毫秒。 */
-export function settingsThresholds(settings: RadarSettings): RadarThresholds {
+export function settingsThresholds(settings: WorldSettings): RadarThresholds {
   return {
-    maxCm: settings.maxCm,
-    absentMs: settings.absentSeconds * 1000,
-    backMs: settings.backSeconds * 1000,
+    maxCm: settings.radarMaxCm,
+    absentMs: settings.radarAbsentSeconds * 1000,
+    backMs: settings.radarBackSeconds * 1000,
   };
 }
 
 /** 雷达说没人时要求的键鼠安静时长，毫秒；0 表示不设这个门槛。 */
-export function settingsQuietMs(settings: RadarSettings): number {
-  return settings.quietSeconds * 1000;
+export function settingsQuietMs(settings: WorldSettings): number {
+  return settings.radarQuietSeconds * 1000;
 }
