@@ -108,6 +108,8 @@ export interface AreYouThereText {
   panel: {
     title: string;
     description: string;
+    lockTitle: string;
+    lockDescription: string;
     judgeTitle: string;
     judgeDescription: string;
     radarTitle: string;
@@ -126,6 +128,8 @@ export interface AreYouThereText {
     far: string;
     down: string;
     starting: string;
+    fieldPollSeconds: string;
+    fieldIdleMinutes: string;
     fieldCheckForeground: string;
     fieldMediaKeywords: string;
     fieldCheckScreen: string;
@@ -166,8 +170,8 @@ const zh: AreYouThereText = {
       suffix: '秒',
     },
     checkIdle: {
-      title: '单独用键鼠判离开',
-      description: '不看雷达时，键鼠空闲到下面那个阈值就判离开。打开雷达后这一路自动停用——雷达那一路已经包含键鼠交叉判定，两边同时开会互相打架。',
+      title: '键鼠判定',
+      description: '键鼠久没动静算可能离开。打开雷达后这路自动停用。',
     },
     idleMinutes: {
       title: '空闲多久算离开',
@@ -177,8 +181,8 @@ const zh: AreYouThereText = {
       suffix: '分钟',
     },
     checkLock: {
-      title: '用锁屏判定',
-      description: '锁着就算不在。关掉后完全忽略锁屏，只看键鼠动静与下面的确认。',
+      title: '锁屏判定',
+      description: '锁着就算离开。',
     },
     checkForeground: {
       title: '空闲时看一眼前台窗口',
@@ -193,19 +197,16 @@ const zh: AreYouThereText = {
       description: '键鼠空闲到阈值后，隔约两秒截两帧缩略图做像素比较；画面在变就当作在看东西。画面只在内存里，不落盘、不发出去。',
     },
     notifyAway: {
-      title: '判为离开时推事件',
-      description: '确认离开后推一条事件，让桌宠知道你走开了。锁屏与空闲两种原因都会推；关掉后只能从环境提示里看出状态。',
+      title: '离开时推事件',
+      description: '确认离开后推一条事件。',
     },
     notifyBack: {
       title: '回来时推事件',
       description: '确认回到桌前之后推一条事件，附上这次离开了多久。',
     },
     radarEnabled: {
-      title: '用毫米波雷达判定',
-      description:
-        '插了 HLK-LD2402（USB 转 TTL）就打开。它只看桌前这一小块：范围内有人就当作在、连续没人就判离开，'
-        + '比键鼠空闲可靠得多——读书、看纸质材料、用手柄都不会被误判。没插硬件时打开只会一直提示没连上。'
-        + '串口、距离、门限这些细项在 World 页的「雷达」页签里调。',
+      title: '雷达判定',
+      description: '接了 HLK-LD2402（USB 转 TTL）就打开。串口与门限在「细节设置」里。',
     },
     radarPort: {
       title: '雷达串口',
@@ -329,15 +330,19 @@ const zh: AreYouThereText = {
     none: '—',
   },
   panel: {
-    title: '设置',
-    description: '判定细节与雷达调参。开关都在「配置」页签里，这里只放它们展开之后的那几项。',
+    title: '细节设置',
+    description: '配置页只放开关，这里放它们展开之后的参数。框的顺序与配置页的开关一致。',
+    lockTitle: '锁屏检测',
+    lockDescription: '多久看一次屏幕锁没锁。对应配置页的「锁屏判定」。',
     judgeTitle: '空闲判定',
     judgeDescription: '键鼠空闲到阈值后，先看一眼前台窗口，再看屏幕在不在变；两项都没认定才判离开。',
-    radarOff: '没打开「用毫米波雷达判定」，这里没有可调项。',
+    radarOff: '没打开「雷达判定」，这里没有可调项。',
     status: '状态',
     radarLatency: (gone) => `LD2402 的硬件延迟是 ${gone}：它要连续这么久测不到人才会报「没人」，上面那项是这之后再加的。`,
     radarLatencyUnknown: '读不到 LD2402 的硬件延迟（串口没连上时读不到）。实际延迟 = 硬件延迟 + 上面那项，不是只有上面那项。',
     radarTotal: (total) => `合计 ${total}`,
+    fieldPollSeconds: '屏幕多久查一次',
+    fieldIdleMinutes: '鼠标空闲判定时长',
     fieldCheckForeground: '空闲时看一眼前台窗口',
     fieldMediaKeywords: '认作「在看」的关键词',
     fieldCheckScreen: '空闲时比较两帧画面',
@@ -381,8 +386,8 @@ const en: AreYouThereText = {
       suffix: 's',
     },
     checkIdle: {
-      title: 'Judge by keyboard idle alone',
-      description: 'With the radar off, keyboard and mouse idle past the threshold below counts as away. Turning the radar on disables this path: the radar already cross-checks the keyboard, and running both at once conflicts.',
+      title: 'Keyboard verdict',
+      description: 'Idle mouse and keyboard count as possibly away. Disabled while the radar is on.',
     },
     idleMinutes: {
       title: 'Idle time that counts as away',
@@ -392,8 +397,8 @@ const en: AreYouThereText = {
       suffix: 'min',
     },
     checkLock: {
-      title: 'Use the screen lock',
-      description: 'A locked screen counts as away. Turned off, the lock is ignored entirely and only keyboard and mouse activity (plus the checks below) is used.',
+      title: 'Screen-lock verdict',
+      description: 'A locked screen counts as away.',
     },
     checkForeground: {
       title: 'Look at the foreground window when idle',
@@ -408,20 +413,16 @@ const en: AreYouThereText = {
       description: 'Once the keyboard and mouse reach the idle threshold, capture two downscaled frames about two seconds apart and compare pixels; a changing screen counts as watching something. The frames stay in memory: not saved, not sent anywhere.',
     },
     notifyAway: {
-      title: 'Raise an event when they leave',
-      description: 'After a confirmed absence, push an event so the pet knows. Both the lock and the idle signal raise it; with this off, the state is only visible through the environment section.',
+      title: 'Away event',
+      description: 'Push an event once they are confirmed away.',
     },
     notifyBack: {
       title: 'Raise an event when they come back',
       description: 'After a confirmed return, push an event with how long the person was away.',
     },
     radarEnabled: {
-      title: 'Use the mmWave radar',
-      description:
-        'Turn on when an HLK-LD2402 is wired through a USB serial adapter. It only watches the desk: someone inside the range '
-        + 'counts as present, nobody inside it counts as away. Far more reliable than an idle timer — reading a book, a paper '
-        + 'handout or playing with a gamepad no longer looks like leaving. With no hardware attached, turning this on just '
-        + 'reports that it is not connected. The port, the range and the thresholds live on the "Radar" tab of the World page.',
+      title: 'Radar verdict',
+      description: 'On when an HLK-LD2402 is wired through USB serial. Port and thresholds live under "Detailed settings".',
     },
     radarPort: {
       title: 'Radar serial port',
@@ -547,8 +548,10 @@ const en: AreYouThereText = {
     none: '—',
   },
   panel: {
-    title: 'Settings',
-    description: 'How the idle verdict is made, plus the radar knobs. The switches themselves stay on the "Config" tab.',
+    title: 'Detailed settings',
+    description: 'The config tab keeps the switches; this page holds their values, in the same order.',
+    lockTitle: 'Screen-lock check',
+    lockDescription: 'How often the screen lock is read. Matches the "Screen-lock verdict" switch.',
     judgeTitle: 'Idle verdict',
     judgeDescription: 'Once the keyboard and mouse reach the idle threshold, the foreground window is checked first and the screen second; only if neither counts as watching do they count as away.',
     radarOff: '"Use the mmWave radar" is off, so there is nothing to tune here.',
@@ -556,6 +559,8 @@ const en: AreYouThereText = {
     radarLatency: (gone) => `The LD2402 has a hardware delay of ${gone}: it only reports nobody after that long without a target, and the field above is added on top.`,
     radarLatencyUnknown: 'The LD2402 hardware delay could not be read (it is unreadable while the port is down). The real latency is that delay plus the field above, not the field alone.',
     radarTotal: (total) => `${total} total`,
+    fieldPollSeconds: 'How often to check the screen',
+    fieldIdleMinutes: 'Mouse idle time',
     fieldCheckForeground: 'Look at the foreground window when idle',
     fieldMediaKeywords: 'Keywords that count as watching',
     fieldCheckScreen: 'Compare two frames when idle',

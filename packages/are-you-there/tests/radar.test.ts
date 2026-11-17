@@ -174,9 +174,9 @@ describe('text and config wiring', () => {
       }
       expect(text.badge.centimetres('79')).toContain('79');
       for (const key of [
-        'title', 'description', 'judgeTitle', 'judgeDescription', 'radarTitle', 'radarDescription',
+        'title', 'description', 'lockTitle', 'lockDescription', 'judgeTitle', 'judgeDescription', 'radarTitle', 'radarDescription',
         'radarOff', 'status', 'radarLatencyUnknown', 'present', 'absent', 'warming', 'stale', 'far', 'down', 'starting',
-        'fieldCheckForeground', 'fieldMediaKeywords', 'fieldCheckScreen',
+        'fieldPollSeconds', 'fieldIdleMinutes', 'fieldCheckForeground', 'fieldMediaKeywords', 'fieldCheckScreen',
         'fieldPort', 'fieldMaxDistance', 'fieldMaxCm', 'fieldAbsentSeconds', 'fieldBackSeconds',
         'fieldPassByNotify', 'fieldQuietSeconds', 'saved',
       ] as const) {
@@ -189,17 +189,19 @@ describe('text and config wiring', () => {
     }
   });
 
-  it('leaves only the switches in the config page', () => {
+  it('leaves only five switches on the config page, in order', () => {
     for (const language of ['zh', 'en'] as const) {
       const group = areYouThereConfigGroup(language);
-      const keys = Object.keys(group.schema.properties);
-      // 判定细节与雷达那几项都搬到了「设置」页签，配置页只剩开关与两个数字
-      expect(keys.filter((key) => key.startsWith('worlds.are-you-there.radar'))).toEqual(['worlds.are-you-there.radarEnabled']);
-      expect(keys).not.toContain('worlds.are-you-there.mediaKeywords');
-      expect(keys).not.toContain('worlds.are-you-there.checkForeground');
-      expect(keys).not.toContain('worlds.are-you-there.checkScreen');
-      expect(keys).toContain('worlds.are-you-there.checkLock');
-      expect(keys).toContain('worlds.are-you-there.pollSeconds');
+      expect(Object.keys(group.schema.properties)).toEqual([
+        'worlds.are-you-there.checkLock',
+        'worlds.are-you-there.checkIdle',
+        'worlds.are-you-there.radarEnabled',
+        'worlds.are-you-there.notifyAway',
+        'worlds.are-you-there.notifyBack',
+      ]);
+      for (const prop of Object.values(group.schema.properties)) {
+        expect(prop.type).toBe('boolean');
+      }
     }
   });
 });

@@ -13,9 +13,9 @@ import type { Language } from 'cortico/core/language.ts';
 import { isLanguage } from 'cortico/core/language.ts';
 import type { ToolDef, ToolOutcome, World, WorldHost, WorldLamp, WorldWebUiDecl } from 'cortico/core/types.ts';
 import {
-  ARE_YOU_THERE_ID, areYouThereConfigGroup, clampedPollSeconds, idleThresholdMs,
+  ARE_YOU_THERE_ID, areYouThereConfigGroup,
   MAX_RADAR_ABSENT_SECONDS, MAX_RADAR_BACK_SECONDS, MAX_RADAR_MAX_CM, MAX_RADAR_MAX_DISTANCE,
-  MAX_RADAR_QUIET_SECONDS, MIN_RADAR_MAX_CM,
+  MAX_RADAR_QUIET_SECONDS, MIN_POLL_SECONDS, MIN_RADAR_MAX_CM, MAX_POLL_SECONDS, MAX_IDLE_MINUTES,
   type AreYouThereConfigSection,
 } from './config.ts';
 import {
@@ -331,7 +331,19 @@ export class AreYouThereWorld implements World {
     const lang = textLanguage(language);
     // 模块自己的消失延迟；没连上时读不到，那就不给合计（卡片底下会解释）
     const gone = this.currentRadar()?.goneMs ?? null;
+    const lock: Array<Record<string, unknown>> = [
+      {
+        key: 'pollSeconds', label: t.panel.fieldPollSeconds, kind: 'int',
+        value: s.pollSeconds, min: MIN_POLL_SECONDS, max: MAX_POLL_SECONDS, suffix: c.pollSeconds.suffix,
+        hint: c.pollSeconds.description,
+      },
+    ];
     const judge: Array<Record<string, unknown>> = [
+      {
+        key: 'idleMinutes', label: t.panel.fieldIdleMinutes, kind: 'int',
+        value: s.idleMinutes, min: 0, max: MAX_IDLE_MINUTES, suffix: c.idleMinutes.suffix,
+        hint: c.idleMinutes.description,
+      },
       { key: 'checkForeground', label: t.panel.fieldCheckForeground, kind: 'bool', value: s.checkForeground, hint: c.checkForeground.description },
       ...(s.checkForeground
         ? [{ key: 'mediaKeywords', label: t.panel.fieldMediaKeywords, kind: 'text', value: s.mediaKeywords, hint: c.mediaKeywords.description }]
@@ -367,6 +379,7 @@ export class AreYouThereWorld implements World {
       ]
       : [];
     return [
+      { id: 'lock', title: t.panel.lockTitle, description: t.panel.lockDescription, fields: lock },
       { id: 'judge', title: t.panel.judgeTitle, description: t.panel.judgeDescription, fields: judge },
       {
         id: 'radar',
@@ -392,7 +405,7 @@ export class AreYouThereWorld implements World {
     return t.panel.radarLatency(formatSeconds(gone, textLanguage(language)));
   }
 
-  /** 面板要的全部东西：两张卡、状态、提示文案。 */
+  /** 面板要的全部东西：三张卡（锁屏 / 空闲 / 雷达）、状态、提示文案。 */
   private panelPayload(language: Language): Record<string, unknown> {
     const t = areYouThereText(language);
     return {
@@ -458,9 +471,9 @@ export class AreYouThereWorld implements World {
     this.lastPassingAt = null;
   }
 
-  /** `pollSeconds` 改了就在下一跳换掉定时器。 */
+  /** 「屏幕多久查一次」改了就在下一跳换掉定时器。 */
   private armTimer(): void {
-    const ms = clampedPollSeconds(this.cfg) * 1000;
+    const ms = this.settings.pollSeconds * 1000;
     if (this.timer !== null && this.armedMs === ms) return;
     if (this.timer !== null) clearInterval(this.timer);
     this.timer = setInterval(() => {
@@ -475,12 +488,12 @@ export class AreYouThereWorld implements World {
    * 两者都关就把子进程停掉；雷达开着时即使独立那路停用了，读数仍然要留着。
    */
   private idleWanted(): boolean {
-    return this.cfg.radarEnabled || (this.cfg.checkIdle !== false && idleThresholdMs(this.cfg) > 0);
+    return this.cfg.radarEnabled || (this.cfg.checkIdle !== false && this.settings.idleMinutes > 0);
   }
 
   /** 独立键鼠那一路的阈值；雷达打开时恒为 0，避免和雷达自带的键鼠判定打架。 */
   private standaloneIdleMs(): number {
-    return this.cfg.radarEnabled || this.cfg.checkIdle === false ? 0 : idleThresholdMs(this.cfg);
+    return this.cfg.radarEnabled || this.cfg.checkIdle === false ? 0 : this.settings.idleMinutes * 60_000;
   }
 
   private ensureIdle(): IdleSource | null {

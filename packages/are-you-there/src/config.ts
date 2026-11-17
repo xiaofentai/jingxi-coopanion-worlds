@@ -137,34 +137,16 @@ export function areYouThereConfigGroup(language: Language = 'zh'): ConfigGroup {
       title: c.group,
       description: c.groupDescription,
       properties: {
-        [`${K}.pollSeconds`]: {
-          type: 'integer',
-          title: c.pollSeconds.title,
-          description: c.pollSeconds.description,
-          minimum: MIN_POLL_SECONDS,
-          maximum: MAX_POLL_SECONDS,
-          'x-suffix': c.pollSeconds.suffix,
+        [`${K}.checkLock`]: {
+          type: 'boolean',
+          title: c.checkLock.title,
+          description: c.checkLock.description,
           'x-hot': true,
         },
         [`${K}.checkIdle`]: {
           type: 'boolean',
           title: c.checkIdle.title,
           description: c.checkIdle.description,
-          'x-hot': true,
-        },
-        [`${K}.idleMinutes`]: {
-          type: 'integer',
-          title: c.idleMinutes.title,
-          description: c.idleMinutes.description,
-          minimum: 0,
-          maximum: MAX_IDLE_MINUTES,
-          'x-suffix': c.idleMinutes.suffix,
-          'x-hot': true,
-        },
-        [`${K}.checkLock`]: {
-          type: 'boolean',
-          title: c.checkLock.title,
-          description: c.checkLock.description,
           'x-hot': true,
         },
         [`${K}.radarEnabled`]: {

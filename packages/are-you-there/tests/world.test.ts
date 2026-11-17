@@ -467,18 +467,20 @@ describe('world', () => {
     await world.stop();
   });
 
-  it('answers the settings panel with two cards', async () => {
+  it('answers the settings panel with three cards in switch order', async () => {
     const { world, host } = setup({ radar: { presentMs: 60_000 } });
     await world.start(host as never);
     await settle();
     const decl = panelDecl(world);
     expect(decl.panels.map((panel) => panel.id)).toEqual(['settings']);
-    expect(decl.panels[0]!.title).toBe('设置');
+    expect(decl.panels[0]!.title).toBe('细节设置');
 
     const view = (await decl.invoke('settings', 'status')) as PanelView;
-    expect(view.sections.map((section) => section.id)).toEqual(['judge', 'radar']);
+    expect(view.sections.map((section) => section.id)).toEqual(['lock', 'judge', 'radar']);
+    expect(view.sections[0]!.fields.map((field) => field.key)).toEqual(['pollSeconds']);
+    expect(view.sections[1]!.fields.map((field) => field.key)[0]).toBe('idleMinutes');
     expect(view.labels.status).toBe('状态');
-    const radar = view.sections[1]!;
+    const radar = view.sections[2]!;
     expect(radar.status?.enabled).toBe(true);
     expect(radar.status?.text).toBe('正常工作，有人');
     expect(radar.status?.hint).toContain('79');
@@ -494,9 +496,9 @@ describe('world', () => {
     await world.start(host as never);
     await settle();
     const view = (await panelDecl(world).invoke('settings', 'status')) as PanelView;
-    const radar = view.sections[1]!;
+    const radar = view.sections[2]!;
     expect(radar.fields).toEqual([]);
-    expect(radar.note).toBe('没打开「用毫米波雷达判定」，这里没有可调项。');
+    expect(radar.note).toBe('没打开「雷达判定」，这里没有可调项。');
     expect(radar.status?.enabled).toBe(false);
     await world.stop();
   });
@@ -506,11 +508,11 @@ describe('world', () => {
     await world.start(host as never);
     await settle();
     const before = (await panelDecl(world).invoke('settings', 'status')) as PanelView;
-    expect(before.sections[0]!.fields.map((field) => field.key)).toEqual(['checkForeground', 'checkScreen']);
+    expect(before.sections[1]!.fields.map((field) => field.key)).toEqual(['idleMinutes', 'checkForeground', 'checkScreen']);
 
     const after = (await panelDecl(world).invoke('settings', 'save', [{ checkForeground: true }])) as PanelView;
-    expect(after.sections[0]!.fields.map((field) => field.key))
-      .toEqual(['checkForeground', 'mediaKeywords', 'checkScreen']);
+    expect(after.sections[1]!.fields.map((field) => field.key))
+      .toEqual(['idleMinutes', 'checkForeground', 'mediaKeywords', 'checkScreen']);
     await world.stop();
   });
 
@@ -631,10 +633,10 @@ describe('world', () => {
     await settle();
     const view = (await panelDecl(world).invoke('settings', 'status')) as PanelView;
     // 卡片底下：LD2402 自己的硬件延迟
-    expect(view.sections[1]!.note).toContain('LD2402');
-    expect(view.sections[1]!.note).toContain('30 秒');
+    expect(view.sections[2]!.note).toContain('LD2402');
+    expect(view.sections[2]!.note).toContain('30 秒');
     // 那一行右上角的小标：合计
-    const absent = view.sections[1]!.fields.find((field) => field.key === 'radarAbsentSeconds')!;
+    const absent = view.sections[2]!.fields.find((field) => field.key === 'radarAbsentSeconds')!;
     expect(absent.badge).toBe('合计 35 秒');
     await world.stop();
   });
@@ -644,9 +646,9 @@ describe('world', () => {
     await world.start(host as never);
     await settle();
     const view = (await panelDecl(world).invoke('settings', 'status')) as PanelView;
-    const absent = view.sections[1]!.fields.find((field) => field.key === 'radarAbsentSeconds')!;
+    const absent = view.sections[2]!.fields.find((field) => field.key === 'radarAbsentSeconds')!;
     expect(absent.badge).toBeUndefined();
-    expect(view.sections[1]!.note).toContain('读不到');
+    expect(view.sections[2]!.note).toContain('读不到');
     await world.stop();
   });
 
@@ -659,7 +661,7 @@ describe('world', () => {
     expect(first.labels.saved).toBe('已保存');
 
     const saved = (await panelDecl(world).invoke('settings', 'save', [{ radarMaxCm: 90, radarBackSeconds: 4 }])) as PanelView;
-    expect(saved.sections[1]!.fields.find((field) => field.key === 'radarMaxCm')!.value).toBe(90);
+    expect(saved.sections[2]!.fields.find((field) => field.key === 'radarMaxCm')!.value).toBe(90);
     const file = JSON.parse(readFileSync(join(dataDir, 'are-you-there-settings.json'), 'utf8'));
     expect(file).toMatchObject({ radarMaxCm: 90, radarBackSeconds: 4 });
     expect(readFileSync(join(dataDir, 'are-you-there.json'), 'utf8').includes('radarMaxCm')).toBe(false);

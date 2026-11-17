@@ -12,10 +12,11 @@ import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, w
 import { join } from 'node:path';
 import type { AreYouThereConfigSection } from './config.ts';
 import {
+  DEFAULT_IDLE_MINUTES, DEFAULT_POLL_SECONDS,
   DEFAULT_RADAR_ABSENT_SECONDS, DEFAULT_RADAR_BACK_SECONDS, DEFAULT_RADAR_MAX_CM,
-  DEFAULT_RADAR_MAX_DISTANCE, DEFAULT_RADAR_QUIET_SECONDS, MAX_RADAR_ABSENT_SECONDS,
-  MAX_RADAR_BACK_SECONDS, MAX_RADAR_MAX_CM, MAX_RADAR_MAX_DISTANCE, MAX_RADAR_QUIET_SECONDS,
-  MIN_RADAR_MAX_CM, radarPortName,
+  DEFAULT_RADAR_MAX_DISTANCE, DEFAULT_RADAR_QUIET_SECONDS, MAX_IDLE_MINUTES, MAX_POLL_SECONDS,
+  MAX_RADAR_ABSENT_SECONDS, MAX_RADAR_BACK_SECONDS, MAX_RADAR_MAX_CM, MAX_RADAR_MAX_DISTANCE,
+  MAX_RADAR_QUIET_SECONDS, MIN_POLL_SECONDS, MIN_RADAR_MAX_CM, radarPortName,
 } from './config.ts';
 import { RADAR_PRESENT_MS, type RadarThresholds } from './radar.ts';
 
@@ -26,6 +27,10 @@ export const SETTINGS_FILE = 'are-you-there-settings.json';
 export const LEGACY_SETTINGS_FILE = 'are-you-there-radar.json';
 
 export interface WorldSettings {
+  /** 屏幕锁检查的轮询间隔，秒。 */
+  pollSeconds: number;
+  /** 鼠标键盘空闲多久算离开，分钟；0 表示不看。 */
+  idleMinutes: number;
   /** 空闲到阈值时看一眼前台窗口。 */
   checkForeground: boolean;
   /** 前台判定用的关键词，逗号分隔。 */
@@ -64,6 +69,8 @@ export function clampSettings(value: Partial<WorldSettings> | null | undefined, 
   const raw = value ?? {};
   const pick = <K extends keyof WorldSettings>(key: K): unknown => raw[key];
   return {
+    pollSeconds: clampInt(pick('pollSeconds'), fallback.pollSeconds, MIN_POLL_SECONDS, MAX_POLL_SECONDS),
+    idleMinutes: clampInt(pick('idleMinutes'), fallback.idleMinutes, 0, MAX_IDLE_MINUTES),
     checkForeground: typeof pick('checkForeground') === 'boolean' ? raw.checkForeground! : fallback.checkForeground,
     mediaKeywords: clampText(pick('mediaKeywords'), fallback.mediaKeywords, 2000),
     checkScreen: typeof pick('checkScreen') === 'boolean' ? raw.checkScreen! : fallback.checkScreen,
@@ -82,6 +89,8 @@ export function seedSettings(cfg: AreYouThereConfigSection): WorldSettings {
   const num = (value: unknown, fallback: number) => (typeof value === 'number' && Number.isFinite(value) ? value : fallback);
   const bool = (value: unknown, fallback: boolean) => (typeof value === 'boolean' ? value : fallback);
   const base: WorldSettings = {
+    pollSeconds: num(cfg.pollSeconds, DEFAULT_POLL_SECONDS),
+    idleMinutes: num(cfg.idleMinutes, DEFAULT_IDLE_MINUTES),
     checkForeground: bool(cfg.checkForeground, false),
     mediaKeywords: typeof cfg.mediaKeywords === 'string' && cfg.mediaKeywords !== '' ? cfg.mediaKeywords : '',
     checkScreen: bool(cfg.checkScreen, false),
