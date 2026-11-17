@@ -180,7 +180,8 @@ describe('text and config wiring', () => {
         expect(text.panel[key], `${language}.panel.${key}`).toBeTruthy();
       }
       expect(text.panel.saveFailed('x')).toContain('x');
-      expect(text.panel.radarLatency('30 秒', '35 秒')).toContain('35');
+      expect(text.panel.radarLatency('30 秒')).toContain('30');
+      expect(text.panel.radarTotal('35 秒')).toContain('35');
       expect(text.lines.awayRadar('11-17 15:10', '9 s')).toBeTruthy();
     }
   });

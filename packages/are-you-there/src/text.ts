@@ -112,9 +112,11 @@ export interface AreYouThereText {
     radarDescription: string;
     radarOff: string;
     status: string;
-    /** 「模块自己还会等 30 秒，所以实际约 35 秒」；`total` 不含模块延迟时用它解释。 */
-    radarLatency: (gone: string, total: string) => string;
+    /** 卡片底下那句：LD2402 自己的硬件延迟。 */
+    radarLatency: (gone: string) => string;
     radarLatencyUnknown: string;
+    /** 「多久没人算离开」右上角那个小标：模块延迟加上这一项之后的合计。 */
+    radarTotal: (total: string) => string;
     present: string;
     absent: string;
     warming: string;
@@ -326,8 +328,9 @@ const zh: AreYouThereText = {
     judgeDescription: '键鼠空闲到阈值后，先看一眼前台窗口，再看屏幕在不在变；两项都没认定才判离开。',
     radarOff: '没打开「用毫米波雷达判定」，这里没有可调项。',
     status: '状态',
-    radarLatency: (gone, total) => `模块报「没人」之前自己还会等 ${gone}，所以离开判定实际在约 ${total} 之后发生。`,
-    radarLatencyUnknown: '模块的消失延迟没读到（串口没连上时读不到）。实际延迟 = 模块延迟 + 上面那项，不是只有上面那项。',
+    radarLatency: (gone) => `LD2402 的硬件延迟是 ${gone}：它要连续这么久测不到人才会报「没人」，上面那项是这之后再加的。`,
+    radarLatencyUnknown: '读不到 LD2402 的硬件延迟（串口没连上时读不到）。实际延迟 = 硬件延迟 + 上面那项，不是只有上面那项。',
+    radarTotal: (total) => `合计 ${total}`,
     fieldCheckForeground: '空闲时看一眼前台窗口',
     fieldMediaKeywords: '认作「在看」的关键词',
     fieldCheckScreen: '空闲时比较两帧画面',
@@ -537,8 +540,9 @@ const en: AreYouThereText = {
     judgeDescription: 'Once the keyboard and mouse reach the idle threshold, the foreground window is checked first and the screen second; only if neither counts as watching do they count as away.',
     radarOff: '"Use the mmWave radar" is off, so there is nothing to tune here.',
     status: 'State',
-    radarLatency: (gone, total) => `The module waits ${gone} on its own before it reports nobody, so leaving is judged after about ${total}.`,
-    radarLatencyUnknown: 'The module delay could not be read (it is unreadable while the port is down). The real latency is the module delay plus the field above, not the field alone.',
+    radarLatency: (gone) => `The LD2402 has a hardware delay of ${gone}: it only reports nobody after that long without a target, and the field above is added on top.`,
+    radarLatencyUnknown: 'The LD2402 hardware delay could not be read (it is unreadable while the port is down). The real latency is that delay plus the field above, not the field alone.',
+    radarTotal: (total) => `${total} total`,
     fieldCheckForeground: 'Look at the foreground window when idle',
     fieldMediaKeywords: 'Keywords that count as watching',
     fieldCheckScreen: 'Compare two frames when idle',

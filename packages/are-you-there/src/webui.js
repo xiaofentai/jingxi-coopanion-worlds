@@ -97,6 +97,8 @@ const settingsPanel = {
         wrap.append(input);
         line.append(wrap);
         if (field.suffix) line.append(ui.h('span', 'tunit', field.suffix));
+        // 行尾那个小标（如「合计 35 秒」）：沿用设置页「需重启」用的 ttag 样式
+        if (field.badge) line.append(ui.h('span', 'ttag', field.badge));
         readers.set(field.key, () => {
           if (field.kind !== 'int') return input.value;
           const n = Number(input.value);

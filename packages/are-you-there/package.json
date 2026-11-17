@@ -1,6 +1,6 @@
 {
   "name": "world-are-you-there",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "type": "module",
   "description": "锁屏、键鼠、雷达三路信号一起看 ta 在不在：锁了就是走了，键鼠久没动静算可能走了，接一颗 24 GHz 毫米波人体存在传感器还能认出「人坐着没动」。结论作为系统前缀的一部分交给 bot，变化时推事件。第三路可选，硬件制作会开源。判定全在本机完成，只读屏幕锁、串口上的雷达帧、前台窗口名与两帧差分，画面不出内存。只在 Windows + Coopanion 上验证过。",
   "author": "xiaofentai",

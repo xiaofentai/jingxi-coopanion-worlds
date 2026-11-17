@@ -328,6 +328,9 @@ export class AreYouThereWorld implements World {
     const t = areYouThereText(language);
     const c = t.config;
     const s = this.settings;
+    const lang = textLanguage(language);
+    // 模块自己的消失延迟；没连上时读不到，那就不给合计（卡片底下会解释）
+    const gone = this.currentRadar()?.goneMs ?? null;
     const judge: Array<Record<string, unknown>> = [
       { key: 'checkForeground', label: t.panel.fieldCheckForeground, kind: 'bool', value: s.checkForeground, hint: c.checkForeground.description },
       ...(s.checkForeground
@@ -349,6 +352,8 @@ export class AreYouThereWorld implements World {
         {
           key: 'radarAbsentSeconds', label: t.panel.fieldAbsentSeconds, kind: 'int',
           value: s.radarAbsentSeconds, min: 1, max: MAX_RADAR_ABSENT_SECONDS, suffix: c.radarAbsentSeconds.suffix,
+          // 右上角那个小标：这一项只是模块那 30 秒之上的追加量，合计才是真实延迟
+          ...(gone === null ? {} : { badge: t.panel.radarTotal(formatSeconds(gone + s.radarAbsentSeconds * 1000, lang)) }),
         },
         {
           key: 'radarBackSeconds', label: t.panel.fieldBackSeconds, kind: 'int',
@@ -384,9 +389,7 @@ export class AreYouThereWorld implements World {
     if (!this.cfg.radarEnabled) return t.panel.radarOff;
     const gone = this.currentRadar()?.goneMs ?? null;
     if (gone === null) return t.panel.radarLatencyUnknown;
-    const lang = textLanguage(language);
-    const total = gone + settingsThresholds(this.settings).absentMs;
-    return t.panel.radarLatency(formatSeconds(gone, lang), formatSeconds(total, lang));
+    return t.panel.radarLatency(formatSeconds(gone, textLanguage(language)));
   }
 
   /** 面板要的全部东西：两张卡、状态、提示文案。 */

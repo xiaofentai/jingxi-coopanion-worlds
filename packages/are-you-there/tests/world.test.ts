@@ -90,7 +90,7 @@ interface PanelView {
   sections: Array<{
     id: string;
     title: string;
-    fields: Array<{ key: string; kind: string; value: unknown; suffix?: string }>;
+    fields: Array<{ key: string; kind: string; value: unknown; suffix?: string; badge?: string }>;
     note?: string;
     status?: RadarView;
   }>;
@@ -521,13 +521,28 @@ describe('world', () => {
     await world.stop();
   });
 
-  it('says what the module delay adds, on the radar card', async () => {
+  it('writes the hardware delay under the card and the total on the field', async () => {
     const { world, host } = setup({ radar: { presentMs: 60_000, goneSeconds: 30 } });
     await world.start(host as never);
     await settle();
     const view = (await panelDecl(world).invoke('settings', 'status')) as PanelView;
+    // 卡片底下：LD2402 自己的硬件延迟
+    expect(view.sections[1]!.note).toContain('LD2402');
     expect(view.sections[1]!.note).toContain('30 秒');
-    expect(view.sections[1]!.note).toContain('35 秒');
+    // 那一行右上角的小标：合计
+    const absent = view.sections[1]!.fields.find((field) => field.key === 'radarAbsentSeconds')!;
+    expect(absent.badge).toBe('合计 35 秒');
+    await world.stop();
+  });
+
+  it('leaves the total off when the hardware delay is unreadable', async () => {
+    const { world, host } = setup({ radar: { presentMs: 60_000 } });
+    await world.start(host as never);
+    await settle();
+    const view = (await panelDecl(world).invoke('settings', 'status')) as PanelView;
+    const absent = view.sections[1]!.fields.find((field) => field.key === 'radarAbsentSeconds')!;
+    expect(absent.badge).toBeUndefined();
+    expect(view.sections[1]!.note).toContain('读不到');
     await world.stop();
   });
 
