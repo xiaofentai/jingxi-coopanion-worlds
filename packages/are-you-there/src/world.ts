@@ -37,7 +37,7 @@ import {
   type RadarDecision, type RadarReading, type RadarSource,
 } from './radar.ts';
 import {
-  clampSettings, readSettings, settingsQuietMs, settingsThresholds, writeSettings,
+  clampSettings, readSettings, settingsQuietMs, settingsThresholds, trackerSettings, writeSettings,
   type WorldSettings,
 } from './settings.ts';
 import { readState, writeState, STATE_FILE } from './state.ts';
@@ -503,16 +503,17 @@ export class AreYouThereWorld implements World {
       return null;
     }
     if (this.injectedRadar !== null) return this.injectedRadar;
-    const key = `${this.settings.port}|${this.settings.maxDistance}`;
+    const tracker = trackerSettings(this.settings);
+    const key = `${tracker.port}|${tracker.maxDistance}`;
     if (this.radar !== null && this.radarKey !== key) {
       this.radar.stop();
       this.radar = null;
     }
     if (this.radar === null) {
       this.radar = new RadarTracker({
-        port: this.settings.port,
-        maxDistance: this.settings.maxDistance,
-        maxCm: () => this.settings.maxCm,
+        port: tracker.port,
+        maxDistance: tracker.maxDistance,
+        maxCm: () => this.settings.radarMaxCm,
       });
       this.radar.start();
       this.radarKey = key;

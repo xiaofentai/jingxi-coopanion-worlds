@@ -9,7 +9,7 @@ import {
   type RadarReading,
 } from '../src/radar.ts';
 import {
-  LEGACY_SETTINGS_FILE, SETTINGS_FILE, clampSettings, readSettings, seedSettings, writeSettings,
+  LEGACY_SETTINGS_FILE, SETTINGS_FILE, clampSettings, readSettings, seedSettings, trackerSettings, writeSettings,
 } from '../src/settings.ts';
 import { areYouThereText } from '../src/text.ts';
 
@@ -230,6 +230,13 @@ describe('the settings file', () => {
     expect(clamped.radarBackSeconds).toBe(0);
     expect(clamped.radarQuietSeconds).toBe(0);
     expect(clamped.radarPassByNotify).toBe(fallback.radarPassByNotify);
+  });
+
+  it('passes real numbers, not undefined, into the tracker', () => {
+    // 回归：改名时漏改一处，undefined 会让子进程收到 -MaxDistance 0（不配置模块，读不到硬件延迟）
+    // 与 maxCm 0（距离过滤失效）
+    const settings = { ...seedSettings(cfg), radarPort: 'COM7', radarMaxDistance: 21, radarMaxCm: 90 };
+    expect(trackerSettings(settings)).toEqual({ port: 'COM7', maxDistance: 21, maxCm: 90 });
   });
 
   it('seeds itself from the config while the file does not exist yet', () => {

@@ -129,6 +129,21 @@ export function writeSettings(dir: string, settings: WorldSettings): void {
   renameSync(tmp, file);
 }
 
+/**
+ * 交给 `RadarTracker` 的那三个值。
+ *
+ * 单独拎出来是因为踩过一次：把设置字段从 `maxCm` 改名成 `radarMaxCm` 时漏改了一处，`undefined`
+ * 一路传进子进程——`-MaxDistance 0` 让配置步骤整个跳过（于是读不到硬件延迟），`maxCm` 变成 0
+ * 让距离过滤失效。名字写错在这里是类型错误，不会悄悄变成 `undefined`。
+ */
+export function trackerSettings(settings: WorldSettings): { port: string; maxDistance: number; maxCm: number } {
+  return {
+    port: settings.radarPort,
+    maxDistance: settings.radarMaxDistance,
+    maxCm: settings.radarMaxCm,
+  };
+}
+
 /** 迟滞参数，毫秒。 */
 export function settingsThresholds(settings: WorldSettings): RadarThresholds {
   return {
