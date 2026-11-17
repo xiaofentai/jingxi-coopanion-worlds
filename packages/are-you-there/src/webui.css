@@ -1,0 +1,26 @@
+/**
+ * 「在吗」的「设置」页签。
+ *
+ * 只写这个根节点下面的东西，不碰全局样式。两处调整：
+ *
+ * 1. 折叠卡的 `summary` 是 `align-items: baseline`、上内边距 13px，标题会被顶到卡片最上沿，
+ *    比控制台自己的卡片看着「高」一截。这里给到 17px 并改成按中线对齐。
+ * 2. 说明行（`.sh-desc`）紧贴标题，和下面第一行之间的空隙又太大；把两头都收一点。
+ */
+.ayt-settings details.sheet.fold > summary {
+  align-items: center;
+  padding: 17px 20px 7px;
+}
+
+.ayt-settings details.sheet.fold > summary h3 {
+  margin: 0;
+  line-height: 1.25;
+}
+
+.ayt-settings details.sheet.fold > .foldbody {
+  padding: 0 20px 15px;
+}
+
+.ayt-settings details.sheet.fold > .foldbody > .sh-desc {
+  margin: 0 0 12px;
+}

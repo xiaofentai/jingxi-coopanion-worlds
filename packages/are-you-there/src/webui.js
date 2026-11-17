@@ -21,7 +21,8 @@ const settingsPanel = {
 
     const message = ui.msgline('');
     // 卡与卡之间的间距交给容器：面板的 root 不管这个，`.measure > .sheet + .sheet` 那套也用不上。
-    const cards = ui.h('div');
+    // `ayt-settings` 是 webui.css 的作用域，样式只跟着这个面板走。
+    const cards = ui.h('div', 'ayt-settings');
     cards.style.cssText = 'display:grid;gap:16px';
     root.append(cards, message);
 

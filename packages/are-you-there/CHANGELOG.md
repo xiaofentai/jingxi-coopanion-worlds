@@ -1,5 +1,9 @@
 # 在吗
 
+## 0.6.1
+
+- 「设置」页签的卡片标题位置修正：折叠卡的 `summary` 只有 13px 上内边距、且按基线对齐，标题贴在卡片最上沿，比控制台自己的卡片看着高出一截。新增 `src/webui.css`（`cortico.webUiStyle`），把上内边距给到 17px、改成中线对齐，说明行与第一行之间的空隙也一并收了一点。样式以 `ayt-settings` 为作用域，不影响别的页面。
+
 ## 0.6.0
 
 - 面板改名「设置」，改用控制台自己的组件画：卡片是 `ui.foldSheet`（可折叠、记住折叠状态），行是设置页那套 `companion-row / configline / tfield / tunit`，控件是 `ui.input` / `ui.checkbox`。此前那版是裸 DOM 加内联样式，和界面其它部分不像。
