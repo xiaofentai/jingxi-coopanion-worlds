@@ -13,7 +13,7 @@ import {
 } from '../src/settings.ts';
 import { areYouThereText } from '../src/text.ts';
 
-const THRESHOLDS = { maxCm: 120, absentMs: 5_000, backMs: 2_000 };
+const THRESHOLDS = { maxCm: 120, absentMs: 5_000, presentMs: 2_000, backMs: 2_000 };
 
 /** 一份「刚刚在 79 厘米处见到人」的读数，按需覆盖。 */
 function reading(overrides: Partial<RadarReading> = {}): RadarReading {
@@ -165,6 +165,9 @@ describe('text and config wiring', () => {
       expect(text.tool.radarFar('120')).toBeTruthy();
       expect(text.tool.radarStale).toBeTruthy();
       expect(text.tool.lampStarting).toBeTruthy();
+      expect(text.tool.idleCross('35 秒')).toContain('35');
+      expect(text.config.checkIdle.title).toBeTruthy();
+      expect(text.config.checkIdle.description).toBeTruthy();
       expect(text.lamp.radar).toBeTruthy();
       for (const key of ['radar', 'state', 'reading', 'connected', 'disconnected', 'none'] as const) {
         expect(text.badge[key], `${language}.badge.${key}`).toBeTruthy();

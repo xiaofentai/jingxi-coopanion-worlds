@@ -470,15 +470,27 @@ export class AreYouThereWorld implements World {
     this.armedMs = ms;
   }
 
-  /** 空闲阈值改成 0 就把子进程停掉；改回来再起一个。 */
+  /**
+   * 键鼠读数什么时候需要：独立键鼠判定开着，或者雷达开着（要给雷达做交叉验证）。
+   * 两者都关就把子进程停掉；雷达开着时即使独立那路停用了，读数仍然要留着。
+   */
+  private idleWanted(): boolean {
+    return this.cfg.radarEnabled || (this.cfg.checkIdle !== false && idleThresholdMs(this.cfg) > 0);
+  }
+
+  /** 独立键鼠那一路的阈值；雷达打开时恒为 0，避免和雷达自带的键鼠判定打架。 */
+  private standaloneIdleMs(): number {
+    return this.cfg.radarEnabled || this.cfg.checkIdle === false ? 0 : idleThresholdMs(this.cfg);
+  }
+
   private ensureIdle(): IdleSource | null {
-    if (this.injectedIdle !== null) return idleThresholdMs(this.cfg) > 0 ? this.injectedIdle : null;
-    if (idleThresholdMs(this.cfg) <= 0) {
+    if (!this.idleWanted()) {
       this.tracker?.stop();
       this.tracker = null;
       this.lastIdle = null;
       return null;
     }
+    if (this.injectedIdle !== null) return this.injectedIdle;
     if (this.tracker === null) {
       this.tracker = new IdleTracker();
       this.tracker.start();
@@ -488,8 +500,9 @@ export class AreYouThereWorld implements World {
 
   /** 只读最近一次空闲读数，不顺手把子进程拉起来。 */
   private currentIdle(): IdleReading | null {
-    if (this.injectedIdle !== null) return idleThresholdMs(this.cfg) > 0 ? this.injectedIdle.latest() : null;
-    return idleThresholdMs(this.cfg) > 0 ? this.tracker?.latest() ?? null : null;
+    if (!this.idleWanted()) return null;
+    if (this.injectedIdle !== null) return this.injectedIdle.latest();
+    return this.tracker?.latest() ?? null;
   }
 
   /** 雷达开关关掉就停子进程；串口或模块距离改了就在下一跳重连。 */
@@ -533,7 +546,7 @@ export class AreYouThereWorld implements World {
     this.probing = true;
     try {
       this.armTimer();
-      const threshold = idleThresholdMs(this.cfg);
+      const threshold = this.standaloneIdleMs();
       const idle = this.ensureIdle()?.latest() ?? null;
       this.lastIdle = idle;
 
@@ -559,13 +572,9 @@ export class AreYouThereWorld implements World {
       this.lastRadarDecision = radarDecision;
       this.maybePassBy(radarReading);
 
-      const quietMs = settingsQuietMs(this.settings);
-      // 固定 35 秒太短：雷达漏检十分钟时，人两分钟前动过鼠标还是会被判走。
-      // 否决窗口取「配置的下限」与「雷达没看到人的整段时间」里更长的那个——这段时间里键鼠
-      // 动过就不信雷达。quietMs=0 是「完全听雷达」，别被这里重新加上窗口。
-      const vetoMs = quietMs <= 0 || radarDecision === null || !radarDecision.absent
-        ? quietMs
-        : Math.max(quietMs, this.radarAwayMs(radarReading, radarDecision));
+      // 雷达这一路自带键鼠交叉：报没人时要求键鼠也静默满这么久；0 表示完全听雷达。
+      // 独立键鼠那一路在雷达打开时已被 standaloneIdleMs() 关掉，两边不会互相打架。
+      const vetoMs = settingsQuietMs(this.settings);
       let reading = decidePresence(locked, idle?.idleMs ?? null, threshold, radarDecision, vetoMs);
       if (reading.away && reading.reason === 'idle' && this.state.away !== true) {
         const verdict = await this.confirmIdle(reading);
@@ -796,9 +805,11 @@ export class AreYouThereWorld implements World {
       t.tool.lastAway(this.lastAwayLine()),
     ];
 
-    const threshold = idleThresholdMs(this.cfg);
+    const threshold = this.standaloneIdleMs();
     const idle = this.currentIdle();
-    if (threshold <= 0) lines.push(t.tool.idle(t.tool.idleOff));
+    if (this.cfg.radarEnabled) {
+      lines.push(t.tool.idle(t.tool.idleCross(formatSeconds(settingsQuietMs(this.settings), lang))));
+    } else if (threshold <= 0) lines.push(t.tool.idle(t.tool.idleOff));
     else if (idle === null) lines.push(t.tool.idle(t.tool.idleUnknown));
     else {
       lines.push(t.tool.idle(t.tool.idleLine(formatDuration(idle.idleMs, lang), formatDuration(threshold, lang))));

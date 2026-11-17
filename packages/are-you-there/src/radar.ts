@@ -100,12 +100,17 @@ export interface RadarSource {
   latest(): RadarReading | null;
 }
 
+/** 雷达撤判「回来」只要连续看到人 5 秒，不需要键鼠参与。 */
+export const RADAR_PRESENT_MS = 5_000;
+
 export interface RadarThresholds {
   /** 只把这么近的人算作「在桌前」，cm。 */
   maxCm: number;
   /** 连续多久没读到人算离开。 */
   absentMs: number;
-  /** 连续读到人多久才撤销「离开」。 */
+  /** 连续读到人多久才算「回来」。 */
+  presentMs: number;
+  /** 比这更短的「有人」算路过，只推事件不改状态。 */
   backMs: number;
 }
 
@@ -144,7 +149,7 @@ export function decideRadar(
   if (absentMs >= thresholds.absentMs) {
     return { present: false, absent: true, absentMs, cm: reading.cm };
   }
-  if (reading.presentSince !== null && now - reading.presentSince >= thresholds.backMs) {
+  if (reading.presentSince !== null && now - reading.presentSince >= thresholds.presentMs) {
     return { present: true, absent: false, absentMs: null, cm: reading.cm };
   }
   return null;

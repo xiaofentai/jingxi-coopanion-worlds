@@ -14,6 +14,8 @@ export const DEFAULT_POLL_SECONDS = 15;
 export interface AreYouThereConfigSection extends WorldSection {
   /** 轮询间隔，秒。 */
   pollSeconds: number;
+  /** 单独用键盘鼠标空闲判离开的开关；雷达打开时这一路停用，键鼠只当雷达的交叉证据。 */
+  checkIdle: boolean;
   /** 键盘鼠标空闲多少分钟算离开；0 表示不看这个信号。 */
   idleMinutes: number;
   /** 用锁屏判定。关掉后完全忽略锁屏，只靠键鼠动静。 */
@@ -82,6 +84,7 @@ export const MAX_RADAR_QUIET_SECONDS = 3600;
 export const ARE_YOU_THERE_DEFAULTS: AreYouThereConfigSection = {
   enabled: false,
   pollSeconds: DEFAULT_POLL_SECONDS,
+  checkIdle: true,
   idleMinutes: DEFAULT_IDLE_MINUTES,
   checkLock: true,
   checkForeground: false,
@@ -141,6 +144,12 @@ export function areYouThereConfigGroup(language: Language = 'zh'): ConfigGroup {
           minimum: MIN_POLL_SECONDS,
           maximum: MAX_POLL_SECONDS,
           'x-suffix': c.pollSeconds.suffix,
+          'x-hot': true,
+        },
+        [`${K}.checkIdle`]: {
+          type: 'boolean',
+          title: c.checkIdle.title,
+          description: c.checkIdle.description,
           'x-hot': true,
         },
         [`${K}.idleMinutes`]: {

@@ -15,6 +15,7 @@ export interface AreYouThereText {
     group: string;
     groupDescription: string;
     pollSeconds: { title: string; description: string; suffix: string };
+    checkIdle: { title: string; description: string };
     idleMinutes: { title: string; description: string; suffix: string };
     checkLock: { title: string; description: string };
     checkForeground: { title: string; description: string };
@@ -60,6 +61,7 @@ export interface AreYouThereText {
     idleOff: string;
     idleUnknown: string;
     idleLine: (span: string, threshold: string) => string;
+    idleCross: (quiet: string) => string;
     verdict: (line: string) => string;
     verdictOff: string;
     verdictForegroundHit: (process: string) => string;
@@ -163,6 +165,10 @@ const zh: AreYouThereText = {
       description: '单位秒，范围 5–300。连续两次读到同一结果才算数，所以状态变化最多慢两个间隔。',
       suffix: '秒',
     },
+    checkIdle: {
+      title: '单独用键鼠判离开',
+      description: '不看雷达时，键鼠空闲到下面那个阈值就判离开。打开雷达后这一路自动停用——雷达那一路已经包含键鼠交叉判定，两边同时开会互相打架。',
+    },
     idleMinutes: {
       title: '空闲多久算离开',
       description:
@@ -240,6 +246,7 @@ const zh: AreYouThereText = {
       description:
         '单位秒，这是「键鼠至少安静这么久」的下限。实际窗口会自动变大：雷达说多久没看到人，'
         + '那整段时间里只要键鼠动过就不信它——避免雷达漏检十分钟、你两分钟前动过鼠标还是被判走。'
+        + '键鼠只要短暂动过几秒不算数：静默满这个时间后就和雷达交叉成立，照常判离开。'
         + '0 表示完全听雷达的：它一报没人就算走。',
       suffix: '秒',
     },
@@ -271,6 +278,7 @@ const zh: AreYouThereText = {
     idleOff: '不看空闲（设置里为 0）',
     idleUnknown: '读不到键盘鼠标的空闲时间',
     idleLine: (span, threshold) => `${span}没有输入（阈值 ${threshold}）`,
+    idleCross: (quiet) => `键鼠只用于雷达交叉判定：要静默 ${quiet} 才和雷达一起判离开`,
     verdict: (line) => `判定：${line}`,
     verdictOff: '空闲时不做额外判定',
     verdictForegroundHit: (process) => `前台是 ${process}，算作在看`,
@@ -372,6 +380,10 @@ const en: AreYouThereText = {
       description: 'Seconds, 5 to 300. Two readings in a row have to agree, so a change shows up at most two intervals late.',
       suffix: 's',
     },
+    checkIdle: {
+      title: 'Judge by keyboard idle alone',
+      description: 'With the radar off, keyboard and mouse idle past the threshold below counts as away. Turning the radar on disables this path: the radar already cross-checks the keyboard, and running both at once conflicts.',
+    },
     idleMinutes: {
       title: 'Idle time that counts as away',
       description:
@@ -451,7 +463,8 @@ const en: AreYouThereText = {
       description:
         'Seconds: the floor for how long the keyboard must be quiet before the radar is trusted. The real window grows with the radar: '
         + 'any input during the whole time the radar has seen nobody vetoes its verdict, so a ten-minute dropout cannot call you away '
-        + 'if you moved the mouse two minutes ago. 0 trusts the radar completely.',
+        + 'if you moved the mouse two minutes ago. A brief blip does not count: once quiet for this long, the radar verdict stands. '
+        + '0 trusts the radar completely.',
       suffix: 's',
     },
     radarGroup: {
@@ -483,6 +496,7 @@ const en: AreYouThereText = {
     idleOff: 'not watched (set to 0)',
     idleUnknown: 'keyboard and mouse idle time could not be read',
     idleLine: (span, threshold) => `no input for ${span} (threshold ${threshold})`,
+    idleCross: (quiet) => `keyboard only cross-checks the radar: quiet for ${quiet} before they agree on away`,
     verdict: (line) => `Verdict: ${line}`,
     verdictOff: 'no extra check while idle',
     verdictForegroundHit: (process) => `the foreground is ${process}, counted as watching`,

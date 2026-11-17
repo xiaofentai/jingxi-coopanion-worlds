@@ -17,7 +17,7 @@ import {
   MAX_RADAR_BACK_SECONDS, MAX_RADAR_MAX_CM, MAX_RADAR_MAX_DISTANCE, MAX_RADAR_QUIET_SECONDS,
   MIN_RADAR_MAX_CM, radarPortName,
 } from './config.ts';
-import type { RadarThresholds } from './radar.ts';
+import { RADAR_PRESENT_MS, type RadarThresholds } from './radar.ts';
 
 /** 放在 `ctx.dataDir` 里，以 World id 开头，不会和别的 World 撞。 */
 export const SETTINGS_FILE = 'are-you-there-settings.json';
@@ -149,6 +149,7 @@ export function settingsThresholds(settings: WorldSettings): RadarThresholds {
   return {
     maxCm: settings.radarMaxCm,
     absentMs: settings.radarAbsentSeconds * 1000,
+    presentMs: RADAR_PRESENT_MS,
     backMs: settings.radarBackSeconds * 1000,
   };
 }

@@ -24,6 +24,7 @@ interface Setup {
   checkLock?: boolean;
   checkForeground?: boolean;
   checkScreen?: boolean;
+  checkIdle?: boolean;
   foreground?: ForegroundInfo | null;
   screen?: number | null;
   /** 给了就打开雷达，用这份读数冒充硬件。 */
@@ -153,6 +154,7 @@ function setup(opts: Setup = {}) {
       checkLock: opts.checkLock ?? true,
       checkForeground: opts.checkForeground ?? true,
       checkScreen: opts.checkScreen ?? false,
+      checkIdle: opts.checkIdle ?? true,
       radarEnabled: radar !== null,
       ...(opts.radarQuietSeconds === undefined ? {} : { radarQuietSeconds: opts.radarQuietSeconds }),
       ...(opts.radarBackSeconds === undefined ? {} : { radarBackSeconds: opts.radarBackSeconds }),
@@ -358,7 +360,39 @@ describe('world', () => {
     await world.stop();
   });
 
-  it('lets the radar veto a long idle stretch', async () => {
+  it('leaves standalone idle off when its switch is off', async () => {
+    const { world, pushed, host, tick } = setup({
+      checkIdle: false,
+      idle: [11 * 60_000],
+    });
+    await world.start(host as never);
+    await settle();
+    pushed.length = 0;
+    await tick();
+
+    expect(pushed).toHaveLength(0);
+    expect(world.envPromptVars()['here.state']).toContain('在桌前');
+    await world.stop();
+  });
+
+  it('keeps the keyboard reading for the radar even with standalone idle off', async () => {
+    const { world, pushed, host, tick, setRadar } = setup({
+      checkIdle: false,
+      radar: { presentMs: 60_000, goneSeconds: 30 },
+      idle: [10_000],
+      radarQuietSeconds: 35,
+    });
+    await world.start(host as never);
+    await settle();
+    pushed.length = 0;
+    setRadar({ absentMs: 719_000, goneSeconds: 30 });
+    await tick();
+
+    expect(pushed).toHaveLength(0);
+    await world.stop();
+  });
+
+  it('lets the radar veto a long idle stretch without needing the keyboard', async () => {
     const { world, pushed, host, tick } = setup({
       idle: [11 * 60_000, 11 * 60_000, 11 * 60_000],
       radar: { presentMs: 50_000 },
@@ -521,11 +555,28 @@ describe('world', () => {
     await world.stop();
   });
 
-  it('does not call them away when the mouse moved during a long radar dropout', async () => {
-    // 雷达 749 秒没看到人，但键鼠两分钟前还动过：固定 35 秒窗口挡不住，自适应窗口要挡住
+  it('still calls it away after a brief keyboard blip, once the keyboard has gone quiet', async () => {
+    // 只开雷达的情况：键鼠短暂动过几秒不算数，静默满 35 秒后照样和雷达交叉成立
     const { world, pushed, host, tick, setRadar } = setup({
       radar: { presentMs: 60_000, goneSeconds: 30 },
-      idle: [120_000],
+      idle: [120_000], // 两分钟前动过，但早已超过 35 秒
+      radarQuietSeconds: 35,
+    });
+    await world.start(host as never);
+    await settle();
+    pushed.length = 0;
+    setRadar({ absentMs: 719_000, goneSeconds: 30 });
+    await tick();
+
+    expect(pushed).toHaveLength(1);
+    expect(pushed[0]!.render()).toContain('749 秒');
+    await world.stop();
+  });
+
+  it('holds off while the keyboard is still warm, with no help from standalone idle', async () => {
+    const { world, pushed, host, tick, setRadar } = setup({
+      radar: { presentMs: 60_000, goneSeconds: 30 },
+      idle: [10_000], // 10 秒前动过，不足 35 秒
       radarQuietSeconds: 35,
     });
     await world.start(host as never);
@@ -543,6 +594,24 @@ describe('world', () => {
     const { world, pushed, host, tick, setRadar } = setup({
       radar: { presentMs: 60_000, goneSeconds: 30 },
       idle: [800_000],
+      radarQuietSeconds: 35,
+    });
+    await world.start(host as never);
+    await settle();
+    pushed.length = 0;
+    setRadar({ absentMs: 719_000, goneSeconds: 30 });
+    await tick();
+
+    expect(pushed).toHaveLength(1);
+    expect(pushed[0]!.render()).toContain('749 秒');
+    await world.stop();
+  });
+
+  it('treats a long keyboard silence as agreement even when it trails the radar', async () => {
+    // 最后一次输入晚于最后一次看见人：没有上限的话两个时长的差恒定，永远不会判走
+    const { world, pushed, host, tick, setRadar } = setup({
+      radar: { presentMs: 60_000, goneSeconds: 30 },
+      idle: [400_000], // 6 分 40 秒：比 749 秒短，但超过 5 分钟上限
       radarQuietSeconds: 35,
     });
     await world.start(host as never);

@@ -46,19 +46,19 @@ export type PresenceChange =
 export const emptyPresence = (): PresenceState => ({ away: null, since: null, reason: null, lastAway: null });
 
 /**
- * 合并几个信号，顺序是有讲究的：
+ * 三路信号，互不越界：
  *
- * 1. 锁着就是不在，后面一律不看——锁屏是最硬的证据。
- * 2. 雷达稳定报「桌前没人」就是不在。它比键鼠空闲硬：人走了但刚敲过键盘，键鼠要等十分钟。
- *    但雷达会漏检——人坐着没动、遮挡物挡了一下、微动门限偏高——所以只要键鼠在**雷达没看到人
- *    的整段时间里**动过，就不采信它：手在键盘上就是人在，这条比雷达硬。`quietMs` 是这个否决
- *    窗口的下限，实际窗口会跟着「雷达没看到人多久」一起变长。
- * 3. 雷达稳定报「有人」就当作在桌前，键鼠空闲不再算数——这正是雷达要补的那个洞（读书、看纸质
- *    材料、用手柄）。但雷达「有人」只说明人在探测范围内，不说明在看屏幕。
- * 4. 雷达没表态（没开、没连上、刚连上还没见到人）才轮到键鼠空闲。
+ * 1. 锁屏最硬，锁着就是不在，后面一律不看。
+ * 2. 雷达这一路自带键鼠交叉判定，自圆其说：
+ *    - 雷达连续报「有人」5 秒（`RadarThresholds.presentMs`）就成立，**不看键鼠**——读书、看纸质
+ *      材料、用手柄这些「屏幕不动但其实人在」的洞就是它补的。
+ *    - 雷达报「没人」满阈值后，还要键鼠也安静满 `radarQuietMs`（默认 35 秒）才交叉成立。
+ *      键鼠 35 秒之前动过就再等等；短暂动几秒不算数，静默够了照样判离开。
+ * 3. 雷达没表态（没开、没连上、帧过期、还没在范围内见过人）才轮到独立键鼠那一路。
+ *    雷达打开时调用方会把 `idleThresholdMs` 传 0，把那一路关掉——两边同时开会互相打架。
  *
- * `idleThresholdMs` 为 0 表示不看空闲；`idleMs` 为 `null` 表示读不到。`radar` 为 `null` 表示
- * 雷达不可用或还没到能下结论的程度，一律当作「没表态」。
+ * `idleMs` 为 `null` 表示读不到键鼠，这时雷达说没人就采信（总比没有判据强）。
+ * `radar` 为 `null` 表示雷达不可用或还没到能下结论的程度。
  */
 export function decidePresence(
   locked: boolean,
@@ -68,12 +68,11 @@ export function decidePresence(
   radarQuietMs = 0,
 ): PresenceReading {
   if (locked) return { away: true, reason: 'lock' };
+  if (radar !== null && radar.present) return { away: false, reason: null };
   if (radar !== null && radar.absent) {
-    // 键鼠还热着，雷达说没人多半是漏检；读不到空闲时只能信雷达
-    if (radarQuietMs > 0 && idleMs !== null && idleMs < radarQuietMs) return { away: false, reason: null };
+    if (idleMs !== null && idleMs < radarQuietMs) return { away: false, reason: null };
     return { away: true, reason: 'radar' };
   }
-  if (radar !== null && radar.present) return { away: false, reason: null };
   if (idleThresholdMs > 0 && idleMs !== null && idleMs >= idleThresholdMs) return { away: true, reason: 'idle' };
   return { away: false, reason: null };
 }
