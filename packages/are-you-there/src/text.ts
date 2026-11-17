@@ -238,10 +238,9 @@ const zh: AreYouThereText = {
     radarQuietSeconds: {
       title: '键鼠还热着就不信雷达',
       description:
-        '单位秒。雷达报没人、但键盘鼠标这么久之内还动过，就当作雷达漏检（人坐着没动、微动门限偏高），不判离开。'
-        + '0 表示完全听雷达的：它一报没人就算走。'
-        + '这个数要跟「模块延迟 + 上面那项」对齐（默认 35 = 30 + 5）：比它短不起作用，比它长就成了真正的瓶颈——'
-        + '离开后要等键鼠安静满这么久才报。',
+        '单位秒，这是「键鼠至少安静这么久」的下限。实际窗口会自动变大：雷达说多久没看到人，'
+        + '那整段时间里只要键鼠动过就不信它——避免雷达漏检十分钟、你两分钟前动过鼠标还是被判走。'
+        + '0 表示完全听雷达的：它一报没人就算走。',
       suffix: '秒',
     },
     radarGroup: {
@@ -450,9 +449,9 @@ const en: AreYouThereText = {
     radarQuietSeconds: {
       title: 'Ignore the radar while the keyboard is warm',
       description:
-        'Seconds. When the radar reports nobody but the keyboard or mouse moved within this window, the radar is assumed to have missed them '
-        + '(sitting still, a threshold that is set too high) and they are not called away. 0 trusts the radar completely. '
-        + 'Line it up with "module delay + the field above" (35 = 30 + 5): shorter does nothing, longer becomes the real bottleneck.',
+        'Seconds: the floor for how long the keyboard must be quiet before the radar is trusted. The real window grows with the radar: '
+        + 'any input during the whole time the radar has seen nobody vetoes its verdict, so a ten-minute dropout cannot call you away '
+        + 'if you moved the mouse two minutes ago. 0 trusts the radar completely.',
       suffix: 's',
     },
     radarGroup: {

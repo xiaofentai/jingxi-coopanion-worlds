@@ -559,7 +559,14 @@ export class AreYouThereWorld implements World {
       this.lastRadarDecision = radarDecision;
       this.maybePassBy(radarReading);
 
-      let reading = decidePresence(locked, idle?.idleMs ?? null, threshold, radarDecision, settingsQuietMs(this.settings));
+      const quietMs = settingsQuietMs(this.settings);
+      // 固定 35 秒太短：雷达漏检十分钟时，人两分钟前动过鼠标还是会被判走。
+      // 否决窗口取「配置的下限」与「雷达没看到人的整段时间」里更长的那个——这段时间里键鼠
+      // 动过就不信雷达。quietMs=0 是「完全听雷达」，别被这里重新加上窗口。
+      const vetoMs = quietMs <= 0 || radarDecision === null || !radarDecision.absent
+        ? quietMs
+        : Math.max(quietMs, this.radarAwayMs(radarReading, radarDecision));
+      let reading = decidePresence(locked, idle?.idleMs ?? null, threshold, radarDecision, vetoMs);
       if (reading.away && reading.reason === 'idle' && this.state.away !== true) {
         const verdict = await this.confirmIdle(reading);
         reading = verdict.reading;

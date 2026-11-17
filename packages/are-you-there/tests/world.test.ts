@@ -521,6 +521,41 @@ describe('world', () => {
     await world.stop();
   });
 
+  it('does not call them away when the mouse moved during a long radar dropout', async () => {
+    // 雷达 749 秒没看到人，但键鼠两分钟前还动过：固定 35 秒窗口挡不住，自适应窗口要挡住
+    const { world, pushed, host, tick, setRadar } = setup({
+      radar: { presentMs: 60_000, goneSeconds: 30 },
+      idle: [120_000],
+      radarQuietSeconds: 35,
+    });
+    await world.start(host as never);
+    await settle();
+    pushed.length = 0;
+    setRadar({ absentMs: 719_000, goneSeconds: 30 });
+    await tick();
+
+    expect(pushed).toHaveLength(0);
+    expect(world.envPromptVars()['here.state']).toContain('在桌前');
+    await world.stop();
+  });
+
+  it('does believe a long dropout once the keyboard is cold for just as long', async () => {
+    const { world, pushed, host, tick, setRadar } = setup({
+      radar: { presentMs: 60_000, goneSeconds: 30 },
+      idle: [800_000],
+      radarQuietSeconds: 35,
+    });
+    await world.start(host as never);
+    await settle();
+    pushed.length = 0;
+    setRadar({ absentMs: 719_000, goneSeconds: 30 });
+    await tick();
+
+    expect(pushed).toHaveLength(1);
+    expect(pushed[0]!.render()).toContain('749 秒');
+    await world.stop();
+  });
+
   it('writes the hardware delay under the card and the total on the field', async () => {
     const { world, host } = setup({ radar: { presentMs: 60_000, goneSeconds: 30 } });
     await world.start(host as never);
