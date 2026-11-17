@@ -314,7 +314,8 @@ describe('world', () => {
     await tick();
 
     expect(pushed).toHaveLength(1);
-    expect(pushed[0]!.render()).toContain('雷达已经');
+    // 结论先行：bot 得看出这是「ta 离开了」的事件，而不是一条雷达读数
+    expect(pushed[0]!.render().startsWith('ta 离开了桌前')).toBe(true);
     expect(pushed[0]!.render()).toContain('79 厘米');
     expect(world.envPromptVars()['here.state']).toContain('雷达没测到人');
     await world.stop();
