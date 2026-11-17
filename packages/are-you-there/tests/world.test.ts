@@ -105,6 +105,16 @@ interface ConfigCard {
 const configCards = (world: AreYouThereWorld): ConfigCard[] =>
   (world.webUi('zh') as unknown as { config: ConfigCard[] }).config;
 
+interface Badge {
+  label: string;
+  value: string;
+  tone?: string;
+}
+
+/** 页头那排药丸，控制台读的是页面声明里的 `badges`。 */
+const badgesOf = (world: AreYouThereWorld): Badge[] =>
+  (world.webUi('zh') as unknown as { badges?: Badge[] }).badges ?? [];
+
 function setup(opts: Setup = {}) {
   const lockedSequence = opts.locked ?? [false];
   const idleSequence = opts.idle ?? [];
@@ -439,6 +449,23 @@ describe('world', () => {
     expect(cards).toHaveLength(1);
     const keys = Object.keys(cards[0]!.schema.properties);
     expect(keys.filter((key) => key.includes('.radar'))).toEqual(['worlds.are-you-there.radarEnabled']);
+  });
+
+  it('heads the page with the radar state while it is on', async () => {
+    const { world, host } = setup({ radar: { presentMs: 60_000 } });
+    await world.start(host as never);
+    await settle();
+    const badges = badgesOf(world);
+    expect(badges.map((badge) => badge.label)).toEqual(['雷达', '状态', '读数']);
+    expect(badges[0]!.value).toBe('已连接');
+    expect(badges[0]!.tone).toBe('on');
+    expect(badges[1]!.value).toBe('正常工作，有人');
+    expect(badges[2]!.value).toBe('79 厘米');
+    await world.stop();
+  });
+
+  it('adds no page badge while the radar is off', () => {
+    expect(badgesOf(setup({}).world)).toEqual([]);
   });
 
   it('hands the panel the seven knobs and stores what it saves', async () => {

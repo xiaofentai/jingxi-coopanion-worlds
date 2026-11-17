@@ -92,6 +92,16 @@ export interface AreYouThereText {
   lamp: {
     radar: string;
   };
+  /** 页头那排标签：`pill(label + value)`，和「联网 Pro」那种工具调用计数一个位置。 */
+  badge: {
+    radar: string;
+    state: string;
+    reading: string;
+    connected: string;
+    disconnected: string;
+    centimetres: (cm: string) => string;
+    none: string;
+  };
   /** World 页里的「雷达」面板：一颗点加一句话，再加那几项调参。 */
   panel: {
     radarTitle: string;
@@ -285,6 +295,15 @@ const zh: AreYouThereText = {
   lamp: {
     radar: '雷达',
   },
+  badge: {
+    radar: '雷达',
+    state: '状态',
+    reading: '读数',
+    connected: '已连接',
+    disconnected: '未连接',
+    centimetres: (cm) => `${cm} 厘米`,
+    none: '—',
+  },
   panel: {
     radarTitle: '雷达',
     radarDescription: 'USB 串口上的那颗 HLK-LD2402：上面一行是它的状态，下面是它那几项调参。开关在「配置」页签里。',
@@ -473,6 +492,15 @@ const en: AreYouThereText = {
   },
   lamp: {
     radar: 'Radar',
+  },
+  badge: {
+    radar: 'Radar',
+    state: 'State',
+    reading: 'Reading',
+    connected: 'connected',
+    disconnected: 'not connected',
+    centimetres: (cm) => `${cm} cm`,
+    none: '—',
   },
   panel: {
     radarTitle: 'Radar',

@@ -197,8 +197,11 @@ export class AreYouThereWorld implements World {
   webUi(language: Language = 'zh'): WorldWebUiDecl {
     const t = areYouThereText(language);
     const chosen = ENV_PROMPT_FILES[this.textLanguage];
+    const badges = this.badges(language);
+    // `badges` 是页面声明里的一项（页头那排药丸），类型定义不在这个包能读到的地方，所以断言一下
     return {
       label: t.label,
+      ...(badges.length > 0 ? { badges } : {}),
       lamps: this.lamps(language),
       panels: [{
         id: 'radar',
@@ -220,7 +223,28 @@ export class AreYouThereWorld implements World {
           ...(name === 'here.state' ? { multiline: true } : {}),
         })),
       }],
-    };
+    } as WorldWebUiDecl;
+  }
+
+  /**
+   * 页头那排药丸，和「联网 Pro」的工具调用计数同一个位置（`page.badges`）。
+   *
+   * 只在打开雷达时给：没装硬件的人页头上多三颗灰药丸只是噪音。
+   */
+  private badges(language: Language): Array<{ label: string; value: string; tone: 'on' | 'off' | 'plain' }> {
+    if (!this.cfg.radarEnabled) return [];
+    const t = areYouThereText(language);
+    const view = this.radarStatus(language);
+    const reading = this.currentRadar();
+    const linked = reading !== null && reading.linked && reading.at > 0
+      && Date.now() - reading.at <= RADAR_STALE_MS;
+    const tone: 'on' | 'off' | 'plain' = view.tone === 'ok' ? 'on' : view.tone === 'off' ? 'off' : 'plain';
+    const cm = linked ? reading?.cm ?? null : null;
+    return [
+      { label: t.badge.radar, value: linked ? t.badge.connected : t.badge.disconnected, tone },
+      { label: t.badge.state, value: view.text || t.badge.none, tone },
+      { label: t.badge.reading, value: cm === null ? t.badge.none : t.badge.centimetres(String(cm)), tone: 'plain' },
+    ];
   }
 
   /**

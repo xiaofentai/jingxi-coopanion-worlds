@@ -166,6 +166,10 @@ describe('text and config wiring', () => {
       expect(text.tool.radarStale).toBeTruthy();
       expect(text.tool.lampStarting).toBeTruthy();
       expect(text.lamp.radar).toBeTruthy();
+      for (const key of ['radar', 'state', 'reading', 'connected', 'disconnected', 'none'] as const) {
+        expect(text.badge[key], `${language}.badge.${key}`).toBeTruthy();
+      }
+      expect(text.badge.centimetres('79')).toContain('79');
       for (const key of [
         'radarTitle', 'radarDescription', 'present', 'absent', 'warming', 'stale', 'far', 'down', 'starting',
         'fieldPort', 'fieldMaxDistance', 'fieldMaxCm', 'fieldAbsentSeconds', 'fieldBackSeconds',
