@@ -27,27 +27,73 @@ interface Setup {
   foreground?: ForegroundInfo | null;
   screen?: number | null;
   /** 给了就打开雷达，用这份读数冒充硬件。 */
-  radar?: { absentMs?: number; presentMs?: number; streakMs?: number };
+  radar?: {
+    absentMs?: number;
+    presentMs?: number;
+    streakMs?: number;
+    linked?: boolean;
+    staleMs?: number;
+    problem?: string;
+    sawNear?: boolean;
+    farSinceAgoMs?: number;
+  };
   radarQuietSeconds?: number;
   radarBackSeconds?: number;
 }
 
 /** 一份「刚刚」的雷达读数：`absentMs` 之前见过人、当前这一帧在 79 厘米处。 */
-function radarReading(opts: { absentMs?: number; presentMs?: number; streakMs?: number }): RadarReading {
+function radarReading(opts: {
+  absentMs?: number;
+  presentMs?: number;
+  streakMs?: number;
+  linked?: boolean;
+  staleMs?: number;
+  problem?: string;
+  sawNear?: boolean;
+  farSinceAgoMs?: number;
+}): RadarReading {
   const now = Date.now();
   return {
     ...emptyRadarReading(),
-    linked: true,
+    linked: opts.linked ?? true,
     port: 'COM5',
-    at: now,
+    at: now - (opts.staleMs ?? 0),
     connectedAt: now - 60_000,
     cm: 79,
-    sawNear: true,
+    sawNear: opts.sawNear ?? true,
+    problem: opts.problem ?? '',
+    farSince: opts.farSinceAgoMs === undefined ? null : now - opts.farSinceAgoMs,
     lastPresentAt: now - (opts.absentMs ?? 0),
     presentSince: opts.presentMs === undefined ? null : now - opts.presentMs,
     ...(opts.streakMs === undefined ? {} : { streakMs: opts.streakMs, streakEndedAt: now - 500 }),
   };
 }
+
+interface Lamp {
+  label: string;
+  state: string;
+  hint?: string;
+}
+
+interface RadarView {
+  enabled: boolean;
+  tone: string;
+  text: string;
+  hint: string;
+}
+
+interface PanelDecl {
+  panels: Array<{ id: string; title: string; description?: string; getMethods?: string[] }>;
+  invoke: (panel: string, method: string) => Promise<unknown>;
+}
+
+/** 控制台从 `webUi()` 里取灯的数组，这里照抄那条路。 */
+const lampsOf = (world: AreYouThereWorld): Lamp[] =>
+  (world.webUi('zh') as unknown as { lamps: Lamp[] }).lamps;
+
+/** 控制台面板：声明与 `invoke`，同样从 `webUi()` 上取。 */
+const panelDecl = (world: AreYouThereWorld): PanelDecl =>
+  world.webUi('zh') as unknown as PanelDecl;
 
 function setup(opts: Setup = {}) {
   const lockedSequence = opts.locked ?? [false];
@@ -301,6 +347,80 @@ describe('world', () => {
     const text = (await world.tools()[0]!.handler({}, {} as never)) as string;
     expect(text).toContain('雷达：');
     expect(text).toContain('没测到人');
+    await world.stop();
+  });
+
+  it('shows no radar lamp at all while the radar is off', async () => {
+    const { world, host } = setup({});
+    await world.start(host as never);
+    await settle();
+    expect(lampsOf(world)).toEqual([]);
+    await world.stop();
+  });
+
+  it('shows a green lamp with the distance while the radar works', async () => {
+    const { world, host } = setup({ radar: { presentMs: 60_000 } });
+    await world.start(host as never);
+    await settle();
+    const lamps = lampsOf(world);
+    expect(lamps).toHaveLength(1);
+    expect(lamps[0]!.label).toBe('雷达');
+    expect(lamps[0]!.state).toBe('online');
+    expect(lamps[0]!.hint).toContain('79');
+    expect(lamps[0]!.hint).toContain('COM5');
+    await world.stop();
+  });
+
+  it('goes grey when the radar is not plugged in', async () => {
+    const { world, host } = setup({ radar: { linked: false, problem: 'missing' } });
+    await world.start(host as never);
+    await settle();
+    const lamp = lampsOf(world)[0]!;
+    expect(lamp.state).toBe('offline');
+    expect(lamp.hint).toContain('missing');
+    await world.stop();
+  });
+
+  it('goes red when the port opens but no frames arrive', async () => {
+    const { world, host } = setup({ radar: { staleMs: 30_000 } });
+    await world.start(host as never);
+    await settle();
+    expect(lampsOf(world)[0]!.state).toBe('error');
+    await world.stop();
+  });
+
+  it('stays amber until the radar has seen somebody in range', async () => {
+    const { world, host } = setup({ radar: { sawNear: false, farSinceAgoMs: 10_000 } });
+    await world.start(host as never);
+    await settle();
+    // 从没在范围内见到人：模块参数可能被重置，先不参与判定
+    expect(lampsOf(world)[0]!.state).toBe('loading');
+    await world.stop();
+  });
+
+  it('answers the radar panel with one green row while it works', async () => {
+    const { world, host } = setup({ radar: { presentMs: 60_000 } });
+    await world.start(host as never);
+    await settle();
+    const decl = panelDecl(world);
+    expect(decl.panels.map((panel) => panel.id)).toEqual(['radar']);
+    expect(decl.panels[0]!.title).toBe('雷达状态');
+
+    const view = (await decl.invoke('radar', 'status')) as RadarView;
+    expect(view.enabled).toBe(true);
+    expect(view.tone).toBe('ok');
+    expect(view.text).toBe('正常工作，有人');
+    expect(view.hint).toContain('79');
+    await world.stop();
+  });
+
+  it('tells the panel the radar is off, so the row hides itself', async () => {
+    const { world, host } = setup({});
+    await world.start(host as never);
+    await settle();
+    const view = (await panelDecl(world).invoke('radar', 'status')) as RadarView;
+    expect(view.enabled).toBe(false);
+    expect(view.text).toBe('');
     await world.stop();
   });
 });

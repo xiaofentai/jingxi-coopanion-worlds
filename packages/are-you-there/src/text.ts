@@ -71,9 +71,11 @@ export interface AreYouThereText {
     radarNotWindows: string;
     radarDisconnected: (reason: string) => string;
     radarWarming: string;
+    radarStale: string;
     radarSeen: (cm: string, at: string) => string;
     radarAbsent: (span: string, cm: string) => string;
     radarFar: (cm: string) => string;
+    lampStarting: string;
     live: (line: string) => string;
     readingLocked: string;
     readingUnlocked: string;
@@ -83,6 +85,22 @@ export interface AreYouThereText {
     failed: (reason: string) => string;
     notWindows: string;
     failures: (count: number, at: string, reason: string) => string;
+  };
+  /** 状态灯：导航栏与 World 总览上那颗点，悬停时是「label 状态 · hint」。 */
+  lamp: {
+    radar: string;
+  };
+  /** World 页里的「雷达状态」面板：一颗点加一句话。 */
+  panel: {
+    radarTitle: string;
+    radarDescription: string;
+    present: string;
+    absent: string;
+    warming: string;
+    stale: string;
+    far: string;
+    down: string;
+    starting: string;
   };
   event: {
     changed: string;
@@ -225,6 +243,8 @@ const zh: AreYouThereText = {
     radarSeen: (cm, at) => `${cm} 厘米有人（最近一帧 ${at}）`,
     radarAbsent: (span, cm) => `已经 ${span}没测到人，最近一次在 ${cm}`,
     radarFar: (cm) => `读到的人全在 ${cm} 之外，模块探测距离多半被重置了，先不参与判定`,
+    radarStale: '串口开着，但已经收不到新数据了（多半被拔了）',
+    lampStarting: '正在找串口',
     live: (line) => `刚刚复查：${line}`,
     readingLocked: '锁屏',
     readingUnlocked: '解锁',
@@ -243,6 +263,20 @@ const zh: AreYouThereText = {
     back: (clock, span) => `屏幕在 ${clock}：ta 回来了，这次离开了 ${span}。`,
     backRadar: (clock, span) => `雷达在 ${clock} 又测到了人：ta 回到桌前，这次离开了 ${span}。`,
     passBy: (span, cm) => `雷达看到有人经过桌前（停留 ${span}${cm}）：大概不是 ta 回来，状态没变。`,
+  },
+  lamp: {
+    radar: '雷达',
+  },
+  panel: {
+    radarTitle: '雷达状态',
+    radarDescription: 'USB 串口上的那颗 HLK-LD2402。没打开「用毫米波雷达判定」时，这里什么都不显示。',
+    present: '正常工作，有人',
+    absent: '正常工作，无人',
+    warming: '已连接，还没在范围内见到人',
+    stale: '串口开着，但收不到数据',
+    far: '读到的距离都在范围之外',
+    down: '未连接',
+    starting: '正在找串口',
   },
   envPrompt: {
     title: '在吗 · 环境提示',
@@ -383,6 +417,8 @@ const en: AreYouThereText = {
     radarSeen: (cm, at) => `someone at ${cm} cm (last frame ${at})`,
     radarAbsent: (span, cm) => `no target for ${span}, last seen at ${cm}`,
     radarFar: (cm) => `everything it sees is beyond ${cm}, the module range was probably reset, so it does not take part in the verdict`,
+    radarStale: 'the port is open but no new frames are arriving (probably unplugged)',
+    lampStarting: 'looking for the serial port',
     live: (line) => `Live check: ${line}`,
     readingLocked: 'locked',
     readingUnlocked: 'unlocked',
@@ -401,6 +437,20 @@ const en: AreYouThereText = {
     back: (clock, span) => `At ${clock} they were back, after ${span} away.`,
     backRadar: (clock, span) => `The radar saw someone again at ${clock}: back at the desk after ${span} away.`,
     passBy: (span, cm) => `The radar briefly saw someone pass the desk (${span}${cm}): probably not them coming back, so nothing changed.`,
+  },
+  lamp: {
+    radar: 'Radar',
+  },
+  panel: {
+    radarTitle: 'Radar status',
+    radarDescription: 'The HLK-LD2402 on the USB serial port. Nothing shows here while "Use the mmWave radar" is off.',
+    present: 'Working, someone at the desk',
+    absent: 'Working, nobody at the desk',
+    warming: 'Connected, but nobody has been in range yet',
+    stale: 'The port is open but no data is arriving',
+    far: 'Everything it reads is beyond the configured range',
+    down: 'Not connected',
+    starting: 'Looking for the serial port',
   },
   envPrompt: {
     title: 'Are you there: environment',

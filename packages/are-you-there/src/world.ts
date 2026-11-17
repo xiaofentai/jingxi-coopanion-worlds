@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Language } from 'cortico/core/language.ts';
 import { isLanguage } from 'cortico/core/language.ts';
-import type { ToolDef, ToolOutcome, World, WorldHost, WorldWebUiDecl } from 'cortico/core/types.ts';
+import type { ToolDef, ToolOutcome, World, WorldHost, WorldLamp, WorldWebUiDecl } from 'cortico/core/types.ts';
 import {
   ARE_YOU_THERE_ID, areYouThereConfigGroup, clampedPollSeconds, idleThresholdMs,
   radarMaxDistance, radarPortName, radarQuietMs, radarThresholds,
@@ -32,7 +32,7 @@ import {
   type Debounce, type TasklistRunner,
 } from './probe.ts';
 import {
-  RADAR_FAR_LIMIT_MS, RadarTracker, decideRadar,
+  RADAR_FAR_LIMIT_MS, RADAR_STALE_MS, RadarTracker, decideRadar,
   type RadarDecision, type RadarReading, type RadarSource,
 } from './radar.ts';
 import { readState, writeState, STATE_FILE } from './state.ts';
@@ -76,6 +76,18 @@ export interface AreYouThereWorldOptions {
   confirm?: ConfirmProbe;
   /** 测试可以换掉毫米波雷达；给了就不会起 PowerShell。 */
   radar?: RadarSource;
+}
+
+/**
+ * 雷达的一句话状态，World 页的面板与导航栏的状态灯共用。
+ *
+ * `tone`：`ok` 绿、`warn` 黄、`bad` 红、`off` 灰；`text` 是那句话，`hint` 是端口与读数这类细节。
+ */
+interface RadarStatusView {
+  enabled: boolean;
+  tone: 'ok' | 'warn' | 'bad' | 'off';
+  text: string;
+  hint: string;
 }
 
 /** 一次空闲判定的结果，留着给回执看。 */
@@ -179,6 +191,14 @@ export class AreYouThereWorld implements World {
     const chosen = ENV_PROMPT_FILES[this.textLanguage];
     return {
       label: t.label,
+      lamps: this.lamps(language),
+      panels: [{
+        id: 'radar',
+        title: t.panel.radarTitle,
+        description: t.panel.radarDescription,
+        getMethods: ['status'],
+      }],
+      invoke: (panel: string, method: string) => this.panelInvoke(panel, method, language),
       config: [areYouThereConfigGroup(language)],
       promptDocs: [{
         key: `worlds.${ARE_YOU_THERE_ID}.envPrompt`,
@@ -193,6 +213,84 @@ export class AreYouThereWorld implements World {
         })),
       }],
     };
+  }
+
+  /**
+   * 雷达当前的样子：一句话加一个语气。面板和状态灯都从这里取，免得两处判断走偏。
+   *
+   * `ok` 只说明硬件在正常工作，不代表人在——人走了雷达照常读数，还是 `ok`。
+   */
+  private radarStatus(language: Language): RadarStatusView {
+    const t = areYouThereText(language);
+    const lang = textLanguage(language);
+    if (!this.cfg.radarEnabled) return { enabled: false, tone: 'off', text: '', hint: '' };
+    const reading = this.currentRadar();
+    if (reading === null || reading.at === 0) {
+      return { enabled: true, tone: 'warn', text: t.panel.starting, hint: '' };
+    }
+    if (reading.problem === 'not-windows') {
+      return { enabled: true, tone: 'off', text: t.panel.down, hint: t.tool.radarNotWindows };
+    }
+    if (!reading.linked) {
+      return {
+        enabled: true,
+        tone: 'off',
+        text: t.panel.down,
+        hint: t.tool.radarDisconnected(reading.problem || 'unknown'),
+      };
+    }
+
+    const port = reading.port;
+    const hint = (text: string) => (port === '' ? text : `${port} · ${text}`);
+    const now = Date.now();
+    if (now - reading.at > RADAR_STALE_MS) {
+      return { enabled: true, tone: 'bad', text: t.panel.stale, hint: hint(t.tool.radarStale) };
+    }
+
+    const thresholds = radarThresholds(this.cfg);
+    const decision = decideRadar(reading, now, thresholds);
+    const cm = reading.cm !== null ? String(reading.cm) : '';
+    if (decision !== null && decision.absent) {
+      const span = formatDuration(decision.absentMs ?? 0, lang);
+      return { enabled: true, tone: 'ok', text: t.panel.absent, hint: hint(t.tool.radarAbsent(span, cm)) };
+    }
+    if (!reading.sawNear) {
+      if (reading.farSince !== null && now - reading.farSince >= RADAR_FAR_LIMIT_MS) {
+        return {
+          enabled: true,
+          tone: 'bad',
+          text: t.panel.far,
+          hint: hint(t.tool.radarFar(`${thresholds.maxCm}`)),
+        };
+      }
+      return { enabled: true, tone: 'warn', text: t.panel.warming, hint: hint(t.tool.radarWarming) };
+    }
+    return {
+      enabled: true,
+      tone: 'ok',
+      text: t.panel.present,
+      hint: hint(t.tool.radarSeen(cm, formatClock(this.opts.timezone, reading.at))),
+    };
+  }
+
+  /**
+   * 导航栏与 World 总览上那颗灯。控制台每 500 ms 重新取一次，所以这里现算就行。
+   *
+   * 没打开雷达就一颗都不给：灰点表示「这条链路关着」，而没装硬件的人本来就不该看到它。
+   */
+  private lamps(language: Language): WorldLamp[] {
+    const view = this.radarStatus(language);
+    if (!view.enabled) return [];
+    const state: WorldLamp['state'] = view.tone === 'ok'
+      ? 'online'
+      : view.tone === 'warn' ? 'loading' : view.tone === 'bad' ? 'error' : 'offline';
+    return [{ label: areYouThereText(language).lamp.radar, state, hint: view.hint }];
+  }
+
+  /** World 页面板的方法：`radar.status`，只读。 */
+  private async panelInvoke(panel: string, method: string, language: Language): Promise<unknown> {
+    if (panel !== 'radar' || method !== 'status') throw new Error(`no such method: ${panel}.${method}`);
+    return this.radarStatus(language);
   }
 
   async start(host: WorldHost): Promise<void> {

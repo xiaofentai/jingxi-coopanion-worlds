@@ -154,6 +154,12 @@ describe('text and config wiring', () => {
       expect(text.event.awayRadar('9 s', '')).toBeTruthy();
       expect(text.event.backRadar('12:00', '5 min')).toBeTruthy();
       expect(text.tool.radarFar('120')).toBeTruthy();
+      expect(text.tool.radarStale).toBeTruthy();
+      expect(text.tool.lampStarting).toBeTruthy();
+      expect(text.lamp.radar).toBeTruthy();
+      for (const key of ['radarTitle', 'radarDescription', 'present', 'absent', 'warming', 'stale', 'far', 'down', 'starting'] as const) {
+        expect(text.panel[key], `${language}.panel.${key}`).toBeTruthy();
+      }
       expect(text.lines.awayRadar('11-17 15:10', '9 s')).toBeTruthy();
     }
   });
