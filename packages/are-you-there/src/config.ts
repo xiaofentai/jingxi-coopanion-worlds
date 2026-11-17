@@ -69,8 +69,14 @@ export const MAX_RADAR_ABSENT_SECONDS = 600;
 /** 默认 10 秒：站一下、伸个手不算回来，只推一条「有人经过」。 */
 export const DEFAULT_RADAR_BACK_SECONDS = 10;
 export const MAX_RADAR_BACK_SECONDS = 120;
-/** 雷达说没人、但键鼠一分钟内还动过时，多半是雷达漏检。 */
-export const DEFAULT_RADAR_QUIET_SECONDS = 60;
+/**
+ * 雷达说没人、但键鼠还热着时，多半是雷达漏检。
+ *
+ * 取 35 = 模块的目标消失延迟 30 + 上面的 radarAbsentSeconds 5：这样这条门槛正好相当于
+ * 「最后一次输入晚于雷达最后一次看见你」，既不会给真实离开再加延迟，也不会把「刚敲完字就报没人」当真。
+ * 比 35 短就形同虚设，比 35 长它自己就成了离开判定的瓶颈。
+ */
+export const DEFAULT_RADAR_QUIET_SECONDS = 35;
 export const MAX_RADAR_QUIET_SECONDS = 3600;
 
 export const ARE_YOU_THERE_DEFAULTS: AreYouThereConfigSection = {

@@ -42,6 +42,17 @@ export function formatDuration(ms: number, language: TextLanguage): string {
   return restHours ? `${plural(days, 'day')} ${plural(restHours, 'hour')}` : plural(days, 'day');
 }
 
+/**
+ * 一段时长，用秒说：「35 秒」。
+ *
+ * `formatDuration` 把不到一分钟一律说成「不到一分钟」，那是给「已经离开多久」用的；雷达这类
+ * 秒级的数字（模块延迟 30 秒 + 插件 5 秒）需要精确到秒，否则「35 秒」会显示成「不到一分钟」。
+ */
+export function formatSeconds(ms: number, language: TextLanguage): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  return language === 'zh' ? `${total} 秒` : plural(total, 'second');
+}
+
 /** 「17 分钟前」；不到一分钟说「刚刚」。 */
 export function formatAgo(ms: number, language: TextLanguage): string {
   if (ms < 60_000) return language === 'zh' ? '刚刚' : 'just now';

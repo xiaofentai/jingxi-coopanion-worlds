@@ -112,6 +112,9 @@ export interface AreYouThereText {
     radarDescription: string;
     radarOff: string;
     status: string;
+    /** 「模块自己还会等 30 秒，所以实际约 35 秒」；`total` 不含模块延迟时用它解释。 */
+    radarLatency: (gone: string, total: string) => string;
+    radarLatencyUnknown: string;
     present: string;
     absent: string;
     warming: string;
@@ -216,7 +219,9 @@ const zh: AreYouThereText = {
     },
     radarAbsentSeconds: {
       title: '雷达多久没人算离开',
-      description: '单位秒。模块自己还有一段「目标消失延迟」（出厂 30 秒），实际延迟是两者之和。',
+      description:
+        '单位秒。这是在模块报出「没人」之后再等的秒数——模块自己还有一段「目标消失延迟」（这台机器实测 30 秒），'
+        + '所以从离桌到判离开是两者之和。默认 5 秒，即约 35 秒后判离开。',
       suffix: '秒',
     },
     radarBackSeconds: {
@@ -232,7 +237,9 @@ const zh: AreYouThereText = {
       title: '键鼠还热着就不信雷达',
       description:
         '单位秒。雷达报没人、但键盘鼠标这么久之内还动过，就当作雷达漏检（人坐着没动、微动门限偏高），不判离开。'
-        + '0 表示完全听雷达的：它一报没人就算走。',
+        + '0 表示完全听雷达的：它一报没人就算走。'
+        + '这个数要跟「模块延迟 + 上面那项」对齐（默认 35 = 30 + 5）：比它短不起作用，比它长就成了真正的瓶颈——'
+        + '离开后要等键鼠安静满这么久才报。',
       suffix: '秒',
     },
     radarGroup: {
@@ -319,6 +326,8 @@ const zh: AreYouThereText = {
     judgeDescription: '键鼠空闲到阈值后，先看一眼前台窗口，再看屏幕在不在变；两项都没认定才判离开。',
     radarOff: '没打开「用毫米波雷达判定」，这里没有可调项。',
     status: '状态',
+    radarLatency: (gone, total) => `模块报「没人」之前自己还会等 ${gone}，所以离开判定实际在约 ${total} 之后发生。`,
+    radarLatencyUnknown: '模块的消失延迟没读到（串口没连上时读不到）。实际延迟 = 模块延迟 + 上面那项，不是只有上面那项。',
     fieldCheckForeground: '空闲时看一眼前台窗口',
     fieldMediaKeywords: '认作「在看」的关键词',
     fieldCheckScreen: '空闲时比较两帧画面',
@@ -421,7 +430,9 @@ const en: AreYouThereText = {
     },
     radarAbsentSeconds: {
       title: 'Radar absence that counts as away',
-      description: 'Seconds. The module has a target-gone delay of its own (30 s from the factory), so the real delay is the sum of the two.',
+      description:
+        'Seconds. This is how long to wait after the module itself says nobody; the module has a target-gone delay of its own '
+        + '(30 s on this machine), so the real latency is the sum of the two. 5 s means away about 35 s after leaving.',
       suffix: 's',
     },
     radarBackSeconds: {
@@ -437,7 +448,8 @@ const en: AreYouThereText = {
       title: 'Ignore the radar while the keyboard is warm',
       description:
         'Seconds. When the radar reports nobody but the keyboard or mouse moved within this window, the radar is assumed to have missed them '
-        + '(sitting still, a threshold that is set too high) and they are not called away. 0 trusts the radar completely.',
+        + '(sitting still, a threshold that is set too high) and they are not called away. 0 trusts the radar completely. '
+        + 'Line it up with "module delay + the field above" (35 = 30 + 5): shorter does nothing, longer becomes the real bottleneck.',
       suffix: 's',
     },
     radarGroup: {
@@ -525,6 +537,8 @@ const en: AreYouThereText = {
     judgeDescription: 'Once the keyboard and mouse reach the idle threshold, the foreground window is checked first and the screen second; only if neither counts as watching do they count as away.',
     radarOff: '"Use the mmWave radar" is off, so there is nothing to tune here.',
     status: 'State',
+    radarLatency: (gone, total) => `The module waits ${gone} on its own before it reports nobody, so leaving is judged after about ${total}.`,
+    radarLatencyUnknown: 'The module delay could not be read (it is unreadable while the port is down). The real latency is the module delay plus the field above, not the field alone.',
     fieldCheckForeground: 'Look at the foreground window when idle',
     fieldMediaKeywords: 'Keywords that count as watching',
     fieldCheckScreen: 'Compare two frames when idle',

@@ -36,6 +36,8 @@ interface Setup {
     problem?: string;
     sawNear?: boolean;
     farSinceAgoMs?: number;
+    /** 模块自己的目标消失延迟，秒。 */
+    goneSeconds?: number;
   };
   radarQuietSeconds?: number;
   radarBackSeconds?: number;
@@ -51,6 +53,7 @@ function radarReading(opts: {
   problem?: string;
   sawNear?: boolean;
   farSinceAgoMs?: number;
+  goneSeconds?: number;
 }): RadarReading {
   const now = Date.now();
   return {
@@ -62,6 +65,7 @@ function radarReading(opts: {
     cm: 79,
     sawNear: opts.sawNear ?? true,
     problem: opts.problem ?? '',
+    goneMs: opts.goneSeconds === undefined ? null : opts.goneSeconds * 1000,
     farSince: opts.farSinceAgoMs === undefined ? null : now - opts.farSinceAgoMs,
     lastPresentAt: now - (opts.absentMs ?? 0),
     presentSince: opts.presentMs === undefined ? null : now - opts.presentMs,
@@ -498,6 +502,33 @@ describe('world', () => {
 
   it('adds no page badge while the radar is off', () => {
     expect(badgesOf(setup({}).world)).toEqual([]);
+  });
+
+  it('counts the module delay into how long they have been gone', async () => {
+    // 模块自己等了 30 秒才报 OFF，插件再等 5 秒：对外应当说 35 秒，不是 5 秒
+    const { world, pushed, host, tick, setRadar } = setup({
+      radar: { presentMs: 60_000, goneSeconds: 30 },
+      radarQuietSeconds: 0,
+    });
+    await world.start(host as never);
+    await settle();
+    pushed.length = 0;
+    setRadar({ absentMs: 5_000, goneSeconds: 30 });
+    await tick();
+
+    expect(pushed).toHaveLength(1);
+    expect(pushed[0]!.render()).toContain('35 秒');
+    await world.stop();
+  });
+
+  it('says what the module delay adds, on the radar card', async () => {
+    const { world, host } = setup({ radar: { presentMs: 60_000, goneSeconds: 30 } });
+    await world.start(host as never);
+    await settle();
+    const view = (await panelDecl(world).invoke('settings', 'status')) as PanelView;
+    expect(view.sections[1]!.note).toContain('30 秒');
+    expect(view.sections[1]!.note).toContain('35 秒');
+    await world.stop();
   });
 
   it('stores what the panel saves in its own file, not in the config', async () => {

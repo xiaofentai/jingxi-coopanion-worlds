@@ -22,7 +22,7 @@ import {
   SCREEN_CHANGED_PERCENT, defaultConfirmProbe, mediaMatch, splitKeywords,
   type ConfirmProbe,
 } from './confirm.ts';
-import { formatClock, formatDuration } from './format.ts';
+import { formatClock, formatDuration, formatSeconds } from './format.ts';
 import { IdleTracker, type IdleReading, type IdleSource } from './idle.ts';
 import {
   applyReading, decidePresence, emptyPresence,
@@ -283,7 +283,7 @@ export class AreYouThereWorld implements World {
     const decision = decideRadar(reading, now, thresholds);
     const cm = reading.cm !== null ? String(reading.cm) : '';
     if (decision !== null && decision.absent) {
-      const span = formatDuration(decision.absentMs ?? 0, lang);
+      const span = formatSeconds(this.radarAwayMs(reading, decision), lang);
       return { enabled: true, tone: 'ok', text: t.panel.absent, hint: hint(t.tool.radarAbsent(span, cm)) };
     }
     if (!reading.sawNear) {
@@ -368,10 +368,25 @@ export class AreYouThereWorld implements World {
         title: t.panel.radarTitle,
         description: t.panel.radarDescription,
         fields: radar,
-        note: this.cfg.radarEnabled ? '' : t.panel.radarOff,
+        note: this.radarLatencyNote(language),
         status: this.radarStatus(language),
       },
     ];
+  }
+
+  /**
+   * 雷达那张卡底下那句话：模块还有一个自己的消失延迟，所以「多久没人算离开」不是总时长。
+   *
+   * 串口没连上时读不到模块参数，这时只说明两者要相加，别编数字。
+   */
+  private radarLatencyNote(language: Language): string {
+    const t = areYouThereText(language);
+    if (!this.cfg.radarEnabled) return t.panel.radarOff;
+    const gone = this.currentRadar()?.goneMs ?? null;
+    if (gone === null) return t.panel.radarLatencyUnknown;
+    const lang = textLanguage(language);
+    const total = gone + settingsThresholds(this.settings).absentMs;
+    return t.panel.radarLatency(formatSeconds(gone, lang), formatSeconds(total, lang));
   }
 
   /** 面板要的全部东西：两张卡、状态、提示文案。 */
@@ -607,7 +622,7 @@ export class AreYouThereWorld implements World {
     if (change.kind === 'away') {
       if (!this.cfg.notifyAway) return;
       const text = change.reason === 'radar'
-        ? t.event.awayRadar(formatDuration(this.lastRadarDecision?.absentMs ?? 0, lang), this.radarDistance())
+        ? t.event.awayRadar(formatSeconds(this.radarAwayMs(this.lastRadar, this.lastRadarDecision), lang), this.radarDistance())
         : change.reason === 'idle'
           ? t.event.awayIdle(formatDuration(this.lastIdle?.idleMs ?? 0, lang), this.awayDetail())
           : t.event.awayLocked(formatClock(this.opts.timezone, change.at));
@@ -625,6 +640,16 @@ export class AreYouThereWorld implements World {
       { type: `${ARE_YOU_THERE_ID}.changed`, origin: 'internal', render: () => text },
       { trigger: 'flush' },
     );
+  }
+
+  /**
+   * 从人离开到判成离开的总时长：插件这段 + 模块自己的目标消失延迟。
+   *
+   * 模块不是一没人就报 `OFF`，它要等满自己的延迟；所以插件那 5 秒是**加在这之上**的。对外说
+   * 「已经 35 秒没测到人」才对，说「5 秒」会让人以为把阈值调小就能更快。
+   */
+  private radarAwayMs(reading: RadarReading | null, decision: RadarDecision | null): number {
+    return (decision?.absentMs ?? 0) + (reading?.goneMs ?? 0);
   }
 
   /** 「，最近一次在 79 厘米」/「 (last seen at 79 cm)」；不知道距离就是空串。 */
@@ -723,7 +748,8 @@ export class AreYouThereWorld implements World {
     const decision = decideRadar(reading, now, thresholds);
     const cm = reading.cm !== null ? String(reading.cm) : '';
     if (decision !== null && decision.absent) {
-      return t.tool.radarAbsent(formatDuration(decision.absentMs ?? 0, this.textLanguage), cm);
+      // 报「离桌多久」而不是「插件等了多久」：模块自己的延迟也算进去
+      return t.tool.radarAbsent(formatSeconds(this.radarAwayMs(reading, decision), this.textLanguage), cm);
     }
     if (!reading.sawNear) {
       if (reading.farSince !== null && now - reading.farSince >= RADAR_FAR_LIMIT_MS) {

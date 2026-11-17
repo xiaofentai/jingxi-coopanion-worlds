@@ -65,6 +65,8 @@ export interface RadarReading {
   streakEndedAt: number | null;
   /** 最近一次「有人」的距离，cm。 */
   cm: number | null;
+  /** 模块自己的「目标消失延迟」，ms；读不到就是 `null`。 */
+  goneMs: number | null;
   /** 当前这段「距离全都超上限」从什么时候开始，`null` 表示最近一帧在范围内。 */
   farSince: number | null;
   /** 这次连接里确认过至少一次「有人」；没有过就先不拿它判离开。 */
@@ -85,6 +87,7 @@ export const emptyRadarReading = (): RadarReading => ({
   streakMs: null,
   streakEndedAt: null,
   cm: null,
+  goneMs: null,
   farSince: null,
   sawNear: false,
   linked: false,
@@ -250,10 +253,16 @@ export class RadarTracker implements RadarSource {
       case 'ready':
         this.reading = { ...this.reading, linked: true, port: line.port, problem: '' };
         return;
-      case 'cfg':
-        // 模块参数是配置动作，不参与判定；留在 problem 里方便回执照抄
-        this.reading = { ...this.reading, problem: '' };
+      case 'cfg': {
+        // 模块参数是配置动作，不参与判定；但「目标消失延迟」要给上层算真实延迟
+        const gone = /gone=(\d+)/.exec(line.text);
+        this.reading = {
+          ...this.reading,
+          problem: '',
+          ...(gone === null ? {} : { goneMs: Number(gone[1]) * 1000 }),
+        };
         return;
+      }
       case 'fail':
         this.reading = { ...this.reading, linked: false, problem: line.reason };
         return;

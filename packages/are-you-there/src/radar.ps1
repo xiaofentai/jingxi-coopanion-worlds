@@ -106,22 +106,26 @@ function Configure($sp, [int]$want) {
   if ($ack.Length -eq 0) { return 'warn-enable' }
   $read = Ask $sp 0x0008 ([byte[]](0x01, 0x00)) 900
   $now = Value $read
+  # 0x0004 is the module's own target-gone delay in seconds. The plugin counts its absence window
+  # on top of it, so this number is what turns "5 s" into the real latency; report it upward.
+  $gone = Value (Ask $sp 0x0008 ([byte[]](0x04, 0x00)) 900)
+  $tail = if ($gone -gt 0) { ' gone=' + $gone } else { '' }
   if ($now -eq [int64]$want) {
     [void](Ask $sp 0x00FE $null 500)
-    return ('keep ' + $now)
+    return ('keep ' + $now + $tail)
   }
   $lo = [byte]($want -band 0xFF)
   $hi = [byte](($want -shr 8) -band 0xFF)
   $w = Ask $sp 0x0007 ([byte[]](0x01, 0x00, $lo, $hi, 0x00, 0x00)) 900
   if ($w.Length -eq 0) {
     [void](Ask $sp 0x00FE $null 500)
-    return ('warn-write from ' + $now)
+    return ('warn-write from ' + $now + $tail)
   }
   # Persist it: without this the module falls back to its old value on the next power cycle.
   [void](Ask $sp 0x00FD $null 900)
   $back = Value (Ask $sp 0x0008 ([byte[]](0x01, 0x00)) 900)
   [void](Ask $sp 0x00FE $null 500)
-  return ('set ' + $now + '->' + $back)
+  return ('set ' + $now + '->' + $back + $tail)
 }
 
 $target = $Port

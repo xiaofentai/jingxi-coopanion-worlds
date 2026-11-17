@@ -142,7 +142,7 @@ const settingsPanel = {
         cards.append(card.el);
         if (section.status) card.body.append(statusRow(section.status, payload.labels.status));
         for (const field of section.fields) card.body.append(fieldRow(field));
-        if (!section.fields.length && section.note) card.body.append(ui.h('p', 'home-note', section.note));
+        if (section.note) card.body.append(ui.h('p', 'home-note', section.note));
       }
       signature = signOf(payload);
     };

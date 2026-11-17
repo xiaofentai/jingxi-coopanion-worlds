@@ -172,7 +172,7 @@ describe('text and config wiring', () => {
       expect(text.badge.centimetres('79')).toContain('79');
       for (const key of [
         'title', 'description', 'judgeTitle', 'judgeDescription', 'radarTitle', 'radarDescription',
-        'radarOff', 'status', 'present', 'absent', 'warming', 'stale', 'far', 'down', 'starting',
+        'radarOff', 'status', 'radarLatencyUnknown', 'present', 'absent', 'warming', 'stale', 'far', 'down', 'starting',
         'fieldCheckForeground', 'fieldMediaKeywords', 'fieldCheckScreen',
         'fieldPort', 'fieldMaxDistance', 'fieldMaxCm', 'fieldAbsentSeconds', 'fieldBackSeconds',
         'fieldPassByNotify', 'fieldQuietSeconds', 'saved',
@@ -180,6 +180,7 @@ describe('text and config wiring', () => {
         expect(text.panel[key], `${language}.panel.${key}`).toBeTruthy();
       }
       expect(text.panel.saveFailed('x')).toContain('x');
+      expect(text.panel.radarLatency('30 秒', '35 秒')).toContain('35');
       expect(text.lines.awayRadar('11-17 15:10', '9 s')).toBeTruthy();
     }
   });
