@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ARE_YOU_THERE_DEFAULTS } from '../src/config.ts';
 import type { ForegroundInfo } from '../src/confirm.ts';
 import type { IdleReading } from '../src/idle.ts';
+import { emptyRadarReading, type RadarReading } from '../src/radar.ts';
 import { AreYouThereWorld } from '../src/world.ts';
 
 const roots: string[] = [];
@@ -25,6 +26,27 @@ interface Setup {
   checkScreen?: boolean;
   foreground?: ForegroundInfo | null;
   screen?: number | null;
+  /** 给了就打开雷达，用这份读数冒充硬件。 */
+  radar?: { absentMs?: number; presentMs?: number; streakMs?: number };
+  radarQuietSeconds?: number;
+  radarBackSeconds?: number;
+}
+
+/** 一份「刚刚」的雷达读数：`absentMs` 之前见过人、当前这一帧在 79 厘米处。 */
+function radarReading(opts: { absentMs?: number; presentMs?: number; streakMs?: number }): RadarReading {
+  const now = Date.now();
+  return {
+    ...emptyRadarReading(),
+    linked: true,
+    port: 'COM5',
+    at: now,
+    connectedAt: now - 60_000,
+    cm: 79,
+    sawNear: true,
+    lastPresentAt: now - (opts.absentMs ?? 0),
+    presentSince: opts.presentMs === undefined ? null : now - opts.presentMs,
+    ...(opts.streakMs === undefined ? {} : { streakMs: opts.streakMs, streakEndedAt: now - 500 }),
+  };
 }
 
 function setup(opts: Setup = {}) {
@@ -35,6 +57,12 @@ function setup(opts: Setup = {}) {
   let lockIndex = 0;
   let idleIndex = 0;
   let idleReading: IdleReading = { idleMs: 0, at: Date.now() };
+  const radar = opts.radar === undefined ? null : radarReading(opts.radar);
+  /** 换一份雷达读数，用来模拟「刚才还在、现在走了」。 */
+  const setRadar = (next: { absentMs?: number; presentMs?: number; streakMs?: number }) => {
+    radarState.current = radarReading(next);
+  };
+  const radarState: { current: RadarReading | null } = { current: radar };
   const world = new AreYouThereWorld({
     cfg: {
       ...ARE_YOU_THERE_DEFAULTS,
@@ -44,6 +72,9 @@ function setup(opts: Setup = {}) {
       checkLock: opts.checkLock ?? true,
       checkForeground: opts.checkForeground ?? true,
       checkScreen: opts.checkScreen ?? false,
+      radarEnabled: radar !== null,
+      ...(opts.radarQuietSeconds === undefined ? {} : { radarQuietSeconds: opts.radarQuietSeconds }),
+      ...(opts.radarBackSeconds === undefined ? {} : { radarBackSeconds: opts.radarBackSeconds }),
     },
     timezone: 'Asia/Shanghai',
     botDir: dataDir,
@@ -61,6 +92,7 @@ function setup(opts: Setup = {}) {
         return idleReading;
       },
     },
+    radar: radar === null ? undefined : { latest: () => radarState.current },
     confirm: {
       foreground: async () => (opts.foreground === undefined ? null : opts.foreground),
       screen: async () => (opts.screen === undefined ? null : opts.screen),
@@ -73,7 +105,7 @@ function setup(opts: Setup = {}) {
     },
   };
   const tick = () => (world as unknown as { tick: () => Promise<void> }).tick();
-  return { world, dataDir, pushed, host, tick };
+  return { world, dataDir, pushed, host, tick, setRadar };
 }
 
 describe('world', () => {
@@ -186,6 +218,89 @@ describe('world', () => {
     await settle();
     const text = (await world.tools()[0]!.handler({}, {} as never)) as string;
     expect(text).toContain('不看空闲');
+    await world.stop();
+  });
+
+  it('calls it away as soon as the radar stops seeing anyone', async () => {
+    // 键鼠刚动过：键鼠那一路还没到阈值，只有雷达能在这个时刻给出结论
+    const { world, pushed, host, tick, setRadar } = setup({ radar: { presentMs: 60_000 }, radarQuietSeconds: 0 });
+    await world.start(host as never);
+    await settle();
+    pushed.length = 0;
+    setRadar({ absentMs: 9_000 });
+    await tick();
+
+    expect(pushed).toHaveLength(1);
+    expect(pushed[0]!.render()).toContain('雷达已经');
+    expect(pushed[0]!.render()).toContain('79 厘米');
+    expect(world.envPromptVars()['here.state']).toContain('雷达没测到人');
+    await world.stop();
+  });
+
+  it('does not believe a radar absence while the keyboard is still warm', async () => {
+    // 坐着敲字、雷达漏检：键鼠刚动过，不能判离开
+    const { world, pushed, host, tick, setRadar } = setup({
+      radar: { presentMs: 60_000 },
+      idle: [2_000],
+      radarQuietSeconds: 60,
+    });
+    await world.start(host as never);
+    await settle();
+    pushed.length = 0;
+    setRadar({ absentMs: 9_000 });
+    await tick();
+
+    expect(pushed).toHaveLength(0);
+    expect(world.envPromptVars()['here.state']).toContain('在桌前');
+    await world.stop();
+  });
+
+  it('narrates a brief sighting as a pass-by instead of a return', async () => {
+    const { world, pushed, host, tick, setRadar } = setup({
+      radar: { presentMs: 60_000 },
+      radarQuietSeconds: 0,
+      radarBackSeconds: 10,
+    });
+    await world.start(host as never);
+    await settle();
+    setRadar({ absentMs: 9_000 });
+    await tick();
+    pushed.length = 0;
+
+    // 有人从桌边走过：出现 3 秒又没了
+    setRadar({ absentMs: 300, streakMs: 3_000 });
+    await tick();
+
+    expect(pushed).toHaveLength(1);
+    expect(pushed[0]!.render()).toContain('有人经过');
+    expect(world.envPromptVars()['here.state']).toContain('雷达没测到人');
+    await world.stop();
+  });
+
+  it('lets the radar veto a long idle stretch', async () => {
+    const { world, pushed, host, tick } = setup({
+      idle: [11 * 60_000, 11 * 60_000, 11 * 60_000],
+      radar: { presentMs: 50_000 },
+    });
+    await world.start(host as never);
+    await settle();
+    pushed.length = 0;
+    for (let i = 0; i < 3; i += 1) await tick();
+
+    expect(pushed).toHaveLength(0);
+    const state = world.envPromptVars()['here.state'];
+    expect(state).toContain('在桌前');
+    expect(state).toContain('79 厘米');
+    await world.stop();
+  });
+
+  it('reports the radar state in the read tool', async () => {
+    const { world, host } = setup({ radar: { absentMs: 9_000 } });
+    await world.start(host as never);
+    await settle();
+    const text = (await world.tools()[0]!.handler({}, {} as never)) as string;
+    expect(text).toContain('雷达：');
+    expect(text).toContain('没测到人');
     await world.stop();
   });
 });

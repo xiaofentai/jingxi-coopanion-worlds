@@ -1,9 +1,10 @@
 /**
- * 在吗的 World：一个定时器、两个信号、一次判定、两行环境提示、一个只读工具。
+ * 在吗的 World：一个定时器、三个信号、一次判定、两行环境提示、一个只读工具。
  *
  * 宿主不给系统事件，只能自己隔一会儿看一眼：屏幕锁没锁（`tasklist`），键盘鼠标还有没有动静
- * （常驻 PowerShell 报空闲毫秒数）。键鼠空闲到阈值时，按配置再做一次判定——看前台窗口、比较两帧
- * 画面——确认「是在看视频」还是「真的走了」。读数连续两次一致才算数；读不到就保持原状。
+ * （常驻 PowerShell 报空闲毫秒数），桌前有没有人（毫米波雷达按 165 ms 一帧报）。锁屏与雷达各自
+ * 单独成立就够；键鼠空闲是弱信号，只在雷达没表态时才用，空闲到阈值还可以按配置再看一眼前台窗口
+ * 或者比较两帧画面。读数连续两次一致才算数；读不到就保持原状。
  */
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -13,6 +14,7 @@ import { isLanguage } from 'cortico/core/language.ts';
 import type { ToolDef, ToolOutcome, World, WorldHost, WorldWebUiDecl } from 'cortico/core/types.ts';
 import {
   ARE_YOU_THERE_ID, areYouThereConfigGroup, clampedPollSeconds, idleThresholdMs,
+  radarMaxDistance, radarPortName, radarQuietMs, radarThresholds,
   type AreYouThereConfigSection,
 } from './config.ts';
 import {
@@ -23,12 +25,16 @@ import { formatClock, formatDuration } from './format.ts';
 import { IdleTracker, type IdleReading, type IdleSource } from './idle.ts';
 import {
   applyReading, decidePresence, emptyPresence,
-  type PresenceChange, type PresenceReading, type PresenceState,
+  type AwayReason, type PresenceChange, type PresenceReading, type PresenceState,
 } from './presence.ts';
 import {
   confirmedReading, emptyDebounce, feedReading, probeLocked, runTasklist,
   type Debounce, type TasklistRunner,
 } from './probe.ts';
+import {
+  RADAR_FAR_LIMIT_MS, RadarTracker, decideRadar,
+  type RadarDecision, type RadarReading, type RadarSource,
+} from './radar.ts';
 import { readState, writeState, STATE_FILE } from './state.ts';
 import { PROMPT_VARS, areYouThereText, textLanguage, type TextLanguage } from './text.ts';
 
@@ -68,6 +74,8 @@ export interface AreYouThereWorldOptions {
   idle?: IdleSource;
   /** 测试可以换掉前台窗口与截图差分。 */
   confirm?: ConfirmProbe;
+  /** 测试可以换掉毫米波雷达；给了就不会起 PowerShell。 */
+  radar?: RadarSource;
 }
 
 /** 一次空闲判定的结果，留着给回执看。 */
@@ -100,12 +108,21 @@ export class AreYouThereWorld implements World {
   private tracker: IdleTracker | null = null;
   private lastIdle: IdleReading | null = null;
   private verdict: Verdict | null = null;
+  private radar: RadarTracker | null = null;
+  /** 上一次用过的串口与模块距离；改了就在下一跳重连。 */
+  private radarKey = '';
+  private lastRadar: RadarReading | null = null;
+  private lastRadarDecision: RadarDecision | null = null;
+  /** 已经推过的那段「路过」，用结束时刻去重。 */
+  private lastPassingAt: number | null = null;
   private readonly injectedIdle: IdleSource | null;
+  private readonly injectedRadar: RadarSource | null;
   private readonly confirmProbe: ConfirmProbe;
 
   constructor(private readonly opts: AreYouThereWorldOptions) {
     this.state = readState(this.stateFile);
     this.injectedIdle = opts.idle ?? null;
+    this.injectedRadar = opts.radar ?? null;
     this.confirmProbe = opts.confirm ?? defaultConfirmProbe;
   }
 
@@ -184,6 +201,7 @@ export class AreYouThereWorld implements World {
     this.debounce = emptyDebounce();
     this.armTimer();
     this.ensureIdle();
+    this.ensureRadar();
     // 第一次读数不等一个间隔：刚启动时最想知道 ta 在不在
     void this.tick();
   }
@@ -196,6 +214,12 @@ export class AreYouThereWorld implements World {
     this.tracker?.stop();
     this.tracker = null;
     this.lastIdle = null;
+    this.radar?.stop();
+    this.radar = null;
+    this.radarKey = '';
+    this.lastRadar = null;
+    this.lastRadarDecision = null;
+    this.lastPassingAt = null;
   }
 
   /** `pollSeconds` 改了就在下一跳换掉定时器。 */
@@ -232,6 +256,41 @@ export class AreYouThereWorld implements World {
     return idleThresholdMs(this.cfg) > 0 ? this.tracker?.latest() ?? null : null;
   }
 
+  /** 雷达开关关掉就停子进程；串口或模块距离改了就在下一跳重连。 */
+  private ensureRadar(): RadarSource | null {
+    if (!this.cfg.radarEnabled) {
+      this.radar?.stop();
+      this.radar = null;
+      this.radarKey = '';
+      this.lastRadar = null;
+      this.lastRadarDecision = null;
+      return null;
+    }
+    if (this.injectedRadar !== null) return this.injectedRadar;
+    const key = `${radarPortName(this.cfg)}|${radarMaxDistance(this.cfg)}`;
+    if (this.radar !== null && this.radarKey !== key) {
+      this.radar.stop();
+      this.radar = null;
+    }
+    if (this.radar === null) {
+      this.radar = new RadarTracker({
+        port: radarPortName(this.cfg),
+        maxDistance: radarMaxDistance(this.cfg),
+        maxCm: () => radarThresholds(this.cfg).maxCm,
+      });
+      this.radar.start();
+      this.radarKey = key;
+    }
+    return this.radar;
+  }
+
+  /** 只读最近一次雷达读数，不顺手把子进程拉起来。 */
+  private currentRadar(): RadarReading | null {
+    if (!this.cfg.radarEnabled) return null;
+    if (this.injectedRadar !== null) return this.injectedRadar.latest();
+    return this.radar?.latest() ?? null;
+  }
+
   private async tick(): Promise<void> {
     if (this.host === null || this.probing) return;
     this.probing = true;
@@ -256,7 +315,14 @@ export class AreYouThereWorld implements World {
         locked = probe.locked;
       }
 
-      let reading = decidePresence(locked, idle?.idleMs ?? null, threshold);
+      const radarSource = this.ensureRadar();
+      const radarReading = radarSource !== null ? this.currentRadar() : null;
+      const radarDecision = decideRadar(radarReading, Date.now(), radarThresholds(this.cfg));
+      this.lastRadar = radarReading;
+      this.lastRadarDecision = radarDecision;
+      this.maybePassBy(radarReading);
+
+      let reading = decidePresence(locked, idle?.idleMs ?? null, threshold, radarDecision, radarQuietMs(this.cfg));
       if (reading.away && reading.reason === 'idle' && this.state.away !== true) {
         const verdict = await this.confirmIdle(reading);
         reading = verdict.reading;
@@ -264,9 +330,15 @@ export class AreYouThereWorld implements World {
       }
 
       this.debounce = feedReading(this.debounce, reading.away);
-      const confirmed = confirmedReading(this.debounce);
+      // 雷达一秒六帧，读数本来就比一次 `tasklist` 结实，迟滞在 `decideRadar` 里已经做过了；
+      // 再要求连续两次轮询一致，等于在模块那 30 秒之外又加一个轮询间隔。锁屏那条路照旧。
+      // 但只在雷达的结论真的被采纳时走近路：`radarQuietSeconds` 这条宽限期会否掉它。
+      const decidedByRadar = radarDecision !== null && !locked && radarDecision.absent === reading.away;
+      const confirmed = decidedByRadar ? reading.away : confirmedReading(this.debounce);
       if (confirmed === null) return;
       const effective = { away: confirmed, reason: confirmed ? reading.reason ?? 'lock' : null };
+      // 回来的时候状态里已经没有原因了，先留一份给事件文案
+      const wasReason = this.state.reason;
       const { state, change } = applyReading(this.state, effective, Date.now());
       if (change === null) {
         this.state = state;
@@ -274,7 +346,7 @@ export class AreYouThereWorld implements World {
       }
       this.state = state;
       this.save();
-      this.announce(change);
+      this.announce(change, wasReason);
     } finally {
       this.probing = false;
     }
@@ -309,16 +381,18 @@ export class AreYouThereWorld implements World {
   }
 
   /** 状态变化时推一条事件；第一次读到状态不喊，免得每次启动都来一句。 */
-  private announce(change: PresenceChange): void {
+  private announce(change: PresenceChange, wasReason: AwayReason | null): void {
     const host = this.host;
     if (host === null || change.kind === 'first') return;
     const t = this.t;
     const lang = this.textLanguage;
     if (change.kind === 'away') {
       if (!this.cfg.notifyAway) return;
-      const text = change.reason === 'idle'
-        ? t.event.awayIdle(formatDuration(this.lastIdle?.idleMs ?? 0, lang), this.awayDetail())
-        : t.event.awayLocked(formatClock(this.opts.timezone, change.at));
+      const text = change.reason === 'radar'
+        ? t.event.awayRadar(formatDuration(this.lastRadarDecision?.absentMs ?? 0, lang), this.radarDistance())
+        : change.reason === 'idle'
+          ? t.event.awayIdle(formatDuration(this.lastIdle?.idleMs ?? 0, lang), this.awayDetail())
+          : t.event.awayLocked(formatClock(this.opts.timezone, change.at));
       host.pushDeferred(
         { type: `${ARE_YOU_THERE_ID}.changed`, origin: 'internal', render: () => text },
         { trigger: 'flush' },
@@ -326,7 +400,40 @@ export class AreYouThereWorld implements World {
       return;
     }
     if (!this.cfg.notifyBack) return;
-    const text = t.event.back(formatClock(this.opts.timezone, change.at), formatDuration(change.awayMs, lang));
+    const clock = formatClock(this.opts.timezone, change.at);
+    const span = formatDuration(change.awayMs, lang);
+    const text = wasReason === 'radar' ? t.event.backRadar(clock, span) : t.event.back(clock, span);
+    host.pushDeferred(
+      { type: `${ARE_YOU_THERE_ID}.changed`, origin: 'internal', render: () => text },
+      { trigger: 'flush' },
+    );
+  }
+
+  /** 「，最近一次在 79 厘米」/「 (last seen at 79 cm)」；不知道距离就是空串。 */
+  private radarDistance(cm?: number | null): string {
+    const value = cm ?? this.lastRadarDecision?.cm ?? this.lastRadar?.cm ?? null;
+    if (value === null) return '';
+    return this.textLanguage === 'zh' ? `，最近一次在 ${value} 厘米` : `, last seen at ${value} cm`;
+  }
+
+  /**
+   * 一段「有人」刚结束：没够上「回来」的时长，就是路过。
+   *
+   * 只在已经判为离开时推——人在桌前的时候，站起来走两步本来就该被忽略。
+   */
+  private maybePassBy(reading: RadarReading | null): void {
+    const host = this.host;
+    if (host === null || reading === null || !this.cfg.radarPassByNotify) return;
+    if (reading.streakEndedAt === null || reading.streakMs === null) return;
+    if (this.lastPassingAt === reading.streakEndedAt) return;
+    if (this.state.away !== true) return;
+    if (reading.streakMs >= radarThresholds(this.cfg).backMs) return;
+
+    this.lastPassingAt = reading.streakEndedAt;
+    const text = this.t.event.passBy(
+      formatDuration(reading.streakMs, this.textLanguage),
+      this.radarDistance(reading.cm),
+    );
     host.pushDeferred(
       { type: `${ARE_YOU_THERE_ID}.changed`, origin: 'internal', render: () => text },
       { trigger: 'flush' },
@@ -356,8 +463,21 @@ export class AreYouThereWorld implements World {
     if (away === null || since === null) return t.lines.unknown;
     const at = formatClock(this.opts.timezone, since);
     const span = formatDuration(now - since, this.textLanguage);
-    if (!away) return t.lines.present(at, span);
-    return reason === 'idle' ? t.lines.awayIdle(at, span) : t.lines.awayLocked(at, span);
+    if (!away) return t.lines.present(at, span) + this.radarNote();
+    if (reason === 'radar') return t.lines.awayRadar(at, span);
+    return (reason === 'idle' ? t.lines.awayIdle(at, span) : t.lines.awayLocked(at, span)) + this.radarNote();
+  }
+
+  /** 追在 `here.state` 后面的一句：雷达在多少厘米、还是根本没连上。 */
+  private radarNote(): string {
+    if (!this.cfg.radarEnabled) return '';
+    const t = this.t;
+    const reading = this.lastRadar ?? this.currentRadar();
+    if (reading === null || !reading.linked) return t.lines.radarDown;
+    if (this.lastRadarDecision?.present === true && reading.cm !== null) {
+      return t.lines.radarPresent(String(reading.cm));
+    }
+    return reading.sawNear ? '' : t.lines.radarWarming;
   }
 
   private lastAwayLine(): string {
@@ -371,7 +491,31 @@ export class AreYouThereWorld implements World {
     );
   }
 
-  /** 回执里的判定那行。 */
+  /** 回执里的雷达那行：连没连上、在多少厘米、还是已经很久没测到人。 */
+  private radarLine(): string {
+    const t = this.t;
+    if (!this.cfg.radarEnabled) return t.tool.radarOff;
+    const reading = this.currentRadar();
+    if (reading === null || reading.at === 0) return t.tool.radarDisconnected(reading?.problem || 'starting');
+    if (reading.problem === 'not-windows') return t.tool.radarNotWindows;
+    if (!reading.linked) return t.tool.radarDisconnected(reading.problem || 'unknown');
+
+    const now = Date.now();
+    const thresholds = radarThresholds(this.cfg);
+    const decision = decideRadar(reading, now, thresholds);
+    const cm = reading.cm !== null ? String(reading.cm) : '';
+    if (decision !== null && decision.absent) {
+      return t.tool.radarAbsent(formatDuration(decision.absentMs ?? 0, this.textLanguage), cm);
+    }
+    if (!reading.sawNear) {
+      if (reading.farSince !== null && now - reading.farSince >= RADAR_FAR_LIMIT_MS) {
+        return t.tool.radarFar(`${thresholds.maxCm}`);
+      }
+      return t.tool.radarWarming;
+    }
+    return t.tool.radarSeen(cm, formatClock(this.opts.timezone, reading.at));
+  }
+
   private verdictLine(): string {
     const t = this.t;
     const verdict = this.verdict;
@@ -404,6 +548,7 @@ export class AreYouThereWorld implements World {
     else {
       lines.push(t.tool.idle(t.tool.idleLine(formatDuration(idle.idleMs, lang), formatDuration(threshold, lang))));
     }
+    lines.push(t.tool.radar(this.radarLine()));
     lines.push(t.tool.verdict(this.verdictLine()));
 
     const probe = await probeLocked(this.opts.runner ?? runTasklist);

@@ -6,8 +6,17 @@ export { ARE_YOU_THERE };
 export {
   ARE_YOU_THERE_DEFAULTS, ARE_YOU_THERE_ID, clampedPollSeconds, idleThresholdMs,
   areYouThereConfigGroup, DEFAULT_IDLE_MINUTES, DEFAULT_MEDIA_KEYWORDS, MAX_IDLE_MINUTES,
+  radarMaxDistance, radarPortName, radarQuietMs, radarThresholds,
+  DEFAULT_RADAR_MAX_CM, DEFAULT_RADAR_MAX_DISTANCE, MAX_RADAR_MAX_CM, MAX_RADAR_MAX_DISTANCE,
 } from './config.ts';
 export type { AreYouThereConfigSection } from './config.ts';
+export {
+  RadarTracker, decideRadar, emptyRadarReading, parseRadarLine,
+  RADAR_FAR_LIMIT_MS, RADAR_SCRIPT, RADAR_STALE_MS,
+} from './radar.ts';
+export type {
+  RadarDecision, RadarLine, RadarReading, RadarSource, RadarThresholds, RadarTrackerOptions,
+} from './radar.ts';
 export { AreYouThereWorld, ARE_YOU_THERE_TOOL_DECLS } from './world.ts';
 export type { AreYouThereWorldOptions } from './world.ts';
 export { parseTasklist, probeLocked, runTasklist, confirmedReading, feedReading, emptyDebounce } from './probe.ts';

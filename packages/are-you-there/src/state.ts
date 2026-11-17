@@ -14,7 +14,7 @@ export const STATE_FILE = 'are-you-there.json';
 const isNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 
 function awayReason(value: unknown): AwayReason | null {
-  return value === 'lock' || value === 'idle' ? value : null;
+  return value === 'lock' || value === 'idle' || value === 'radar' ? value : null;
 }
 
 function awayRecord(value: unknown): AwayRecord | null {

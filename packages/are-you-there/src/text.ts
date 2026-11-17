@@ -22,6 +22,14 @@ export interface AreYouThereText {
     checkScreen: { title: string; description: string };
     notifyAway: { title: string; description: string };
     notifyBack: { title: string; description: string };
+    radarEnabled: { title: string; description: string };
+    radarPort: { title: string; description: string };
+    radarMaxDistance: { title: string; description: string; suffix: string };
+    radarMaxCm: { title: string; description: string; suffix: string };
+    radarAbsentSeconds: { title: string; description: string; suffix: string };
+    radarBackSeconds: { title: string; description: string; suffix: string };
+    radarPassByNotify: { title: string; description: string };
+    radarQuietSeconds: { title: string; description: string; suffix: string };
   };
   /** 状态那几行，环境提示与工具回执共用。 */
   lines: {
@@ -31,6 +39,12 @@ export interface AreYouThereText {
     awayLocked: (since: string, span: string) => string;
     /** 解锁着，但键盘鼠标久无输入。 */
     awayIdle: (since: string, span: string) => string;
+    /** 雷达连续没测到人。 */
+    awayRadar: (since: string, span: string) => string;
+    /** 追在状态后面的一句雷达补充，没有可说的就是空串。 */
+    radarPresent: (cm: string) => string;
+    radarDown: string;
+    radarWarming: string;
     unknown: string;
     lastAway: (from: string, to: string, span: string) => string;
     noLastAway: string;
@@ -52,6 +66,14 @@ export interface AreYouThereText {
     verdictScreenChanged: (percent: string) => string;
     verdictScreenStill: (percent: string) => string;
     verdictScreenFailed: string;
+    radar: (line: string) => string;
+    radarOff: string;
+    radarNotWindows: string;
+    radarDisconnected: (reason: string) => string;
+    radarWarming: string;
+    radarSeen: (cm: string, at: string) => string;
+    radarAbsent: (span: string, cm: string) => string;
+    radarFar: (cm: string) => string;
     live: (line: string) => string;
     readingLocked: string;
     readingUnlocked: string;
@@ -66,7 +88,10 @@ export interface AreYouThereText {
     changed: string;
     awayLocked: (clock: string) => string;
     awayIdle: (span: string, detail: string) => string;
+    awayRadar: (span: string, cm: string) => string;
     back: (clock: string, span: string) => string;
+    backRadar: (clock: string, span: string) => string;
+    passBy: (span: string, cm: string) => string;
   };
   envPrompt: {
     title: string;
@@ -116,11 +141,60 @@ const zh: AreYouThereText = {
       title: '回来时推事件',
       description: '确认回到桌前之后推一条事件，附上这次离开了多久。',
     },
+    radarEnabled: {
+      title: '用毫米波雷达判定',
+      description:
+        '插了 HLK-LD2402（USB 转 TTL）就打开。它只看桌前这一小块：范围内有人就当作在、连续没人就判离开，'
+        + '比键鼠空闲可靠得多——读书、看纸质材料、用手柄都不会被误判。没插硬件时打开只会一直提示没连上。',
+    },
+    radarPort: {
+      title: '雷达串口',
+      description: '`auto` 表示每次连接时自己枚举 USB 串口，拔掉插到别的口也能接上。也可以直接写 COM5 这类端口名。',
+    },
+    radarMaxDistance: {
+      title: '模块探测距离',
+      description:
+        '0.1 米为单位，7–100。插件启动时读这个参数，和它不一致就写回去并保存，免得断电后恢复出厂值。'
+        + '0 表示不动模块参数，只按下面那条过滤。',
+      suffix: '0.1 米',
+    },
+    radarMaxCm: {
+      title: '只把这么近的人算作在桌前',
+      description:
+        '单位厘米。雷达测到更远的人（比如房间另一头的家人）不算数。它同时是自检基线：如果雷达看到的人长期全在这个距离之外，'
+        + '说明模块参数被重置或摆位变了，插件会忽略它并说明原因，而不是据此判你离开。',
+      suffix: '厘米',
+    },
+    radarAbsentSeconds: {
+      title: '雷达多久没人算离开',
+      description: '单位秒。模块自己还有一段「目标消失延迟」（出厂 30 秒），实际延迟是两者之和。',
+      suffix: '秒',
+    },
+    radarBackSeconds: {
+      title: '雷达多久有人才算回来',
+      description: '单位秒。雷达要连续测到人这么久才算「ta 回来了」；比这更短的算路过，只推一条经过事件，状态不变。默认 10 秒。',
+      suffix: '秒',
+    },
+    radarPassByNotify: {
+      title: '有人经过时推事件',
+      description: '判为离开期间，雷达短暂看到人就推一条「有人经过」，附上停留了多久。关掉就只在真的回来时出声。',
+    },
+    radarQuietSeconds: {
+      title: '键鼠还热着就不信雷达',
+      description:
+        '单位秒。雷达报没人、但键盘鼠标这么久之内还动过，就当作雷达漏检（人坐着没动、微动门限偏高），不判离开。'
+        + '0 表示完全听雷达的：它一报没人就算走。',
+      suffix: '秒',
+    },
   },
   lines: {
     present: (since, span) => `在桌前（${since} 解锁，已 ${span}）`,
     awayLocked: (since, span) => `不在（${since} 锁屏，已 ${span}）`,
     awayIdle: (since, span) => `不在（${since} 键盘鼠标久无输入，已 ${span}）`,
+    awayRadar: (since, span) => `不在（${since} 雷达没测到人，已 ${span}）`,
+    radarPresent: (cm) => `，雷达在 ${cm} 厘米`,
+    radarDown: '，雷达没连上',
+    radarWarming: '，雷达还没在范围内见到人',
     unknown: '还不知道（启动后还没读到一次成功的读数）',
     lastAway: (from, to, span) => `${from} → ${to}，${span}`,
     noLastAway: '还没记到过一次离开',
@@ -143,6 +217,14 @@ const zh: AreYouThereText = {
     verdictScreenChanged: (percent) => `两帧差 ${percent}，屏幕在变，算作在看`,
     verdictScreenStill: (percent) => `两帧差 ${percent}，屏幕没在变`,
     verdictScreenFailed: '截图失败',
+    radar: (line) => `雷达：${line}`,
+    radarOff: '没打开（设置里勾上「用毫米波雷达判定」）',
+    radarNotWindows: '只在 Windows 上能读',
+    radarDisconnected: (reason) => `没连上（${reason}）`,
+    radarWarming: '连上了，但还没在范围内读到人（先不参与判定）',
+    radarSeen: (cm, at) => `${cm} 厘米有人（最近一帧 ${at}）`,
+    radarAbsent: (span, cm) => `已经 ${span}没测到人，最近一次在 ${cm}`,
+    radarFar: (cm) => `读到的人全在 ${cm} 之外，模块探测距离多半被重置了，先不参与判定`,
     live: (line) => `刚刚复查：${line}`,
     readingLocked: '锁屏',
     readingUnlocked: '解锁',
@@ -157,7 +239,10 @@ const zh: AreYouThereText = {
     changed: 'ta 离开电脑或回来了。',
     awayLocked: (clock) => `屏幕在 ${clock} 锁上了：ta 离开了电脑。`,
     awayIdle: (span, detail) => `键盘鼠标已经 ${span}没有动静${detail}：ta 大概不在屏幕前了。`,
+    awayRadar: (span, cm) => `雷达已经 ${span}没测到人${cm}：ta 大概离开桌前了。`,
     back: (clock, span) => `屏幕在 ${clock}：ta 回来了，这次离开了 ${span}。`,
+    backRadar: (clock, span) => `雷达在 ${clock} 又测到了人：ta 回到桌前，这次离开了 ${span}。`,
+    passBy: (span, cm) => `雷达看到有人经过桌前（停留 ${span}${cm}）：大概不是 ta 回来，状态没变。`,
   },
   envPrompt: {
     title: '在吗 · 环境提示',
@@ -210,11 +295,63 @@ const en: AreYouThereText = {
       title: 'Raise an event when they come back',
       description: 'After a confirmed return, push an event with how long the person was away.',
     },
+    radarEnabled: {
+      title: 'Use the mmWave radar',
+      description:
+        'Turn on when an HLK-LD2402 is wired through a USB serial adapter. It only watches the desk: someone inside the range '
+        + 'counts as present, nobody inside it counts as away. Far more reliable than an idle timer — reading a book, a paper '
+        + 'handout or playing with a gamepad no longer looks like leaving. With no hardware attached, turning this on just '
+        + 'reports that it is not connected.',
+    },
+    radarPort: {
+      title: 'Radar serial port',
+      description: '`auto` enumerates the USB serial ports on every connect, so unplugging and landing on another COM number still works. A concrete name like COM5 also works.',
+    },
+    radarMaxDistance: {
+      title: 'Module range',
+      description:
+        'In 0.1 m units, 7 to 100. On start the plugin reads this parameter and writes it back (and saves it) when it differs, '
+        + 'so a power cycle cannot silently restore the factory value. 0 leaves the module alone and only applies the filter below.',
+      suffix: '0.1 m',
+    },
+    radarMaxCm: {
+      title: 'How close someone has to be',
+      description:
+        'Centimetres. Someone further away, a family member across the room for instance, does not count. It doubles as the '
+        + 'self-check baseline: when everything the radar sees stays beyond this distance, the module range or the mounting '
+        + 'changed, so the plugin ignores the radar and says why instead of calling you away.',
+      suffix: 'cm',
+    },
+    radarAbsentSeconds: {
+      title: 'Radar absence that counts as away',
+      description: 'Seconds. The module has a target-gone delay of its own (30 s from the factory), so the real delay is the sum of the two.',
+      suffix: 's',
+    },
+    radarBackSeconds: {
+      title: 'Radar presence that counts as back',
+      description: 'Seconds. The radar has to see someone for this long before they count as back; anything shorter is a pass-by: one event, no state change. 10 s by default.',
+      suffix: 's',
+    },
+    radarPassByNotify: {
+      title: 'Raise an event when someone passes by',
+      description: 'While they are away, a brief radar sighting raises a "someone passed by" event with how long it lasted. Turned off, only a real return makes a sound.',
+    },
+    radarQuietSeconds: {
+      title: 'Ignore the radar while the keyboard is warm',
+      description:
+        'Seconds. When the radar reports nobody but the keyboard or mouse moved within this window, the radar is assumed to have missed them '
+        + '(sitting still, a threshold that is set too high) and they are not called away. 0 trusts the radar completely.',
+      suffix: 's',
+    },
   },
   lines: {
     present: (since, span) => `At the desk (unlocked ${since}, ${span} so far)`,
     awayLocked: (since, span) => `Away (locked ${since}, ${span} so far)`,
     awayIdle: (since, span) => `Away (no keyboard or mouse input since ${since}, ${span} so far)`,
+    awayRadar: (since, span) => `Away (no radar target since ${since}, ${span} so far)`,
+    radarPresent: (cm) => `, radar at ${cm} cm`,
+    radarDown: ', radar not connected',
+    radarWarming: ', the radar has not seen anyone in range yet',
     unknown: 'Not known yet (no successful reading since start)',
     lastAway: (from, to, span) => `${from} to ${to}, ${span}`,
     noLastAway: 'No away period recorded yet',
@@ -238,6 +375,14 @@ const en: AreYouThereText = {
     verdictScreenChanged: (percent) => `the two frames differ by ${percent}, the screen is changing, counted as watching`,
     verdictScreenStill: (percent) => `the two frames differ by ${percent}, the screen is still`,
     verdictScreenFailed: 'the frames could not be captured',
+    radar: (line) => `Radar: ${line}`,
+    radarOff: 'off (turn on "Use the mmWave radar")',
+    radarNotWindows: 'only readable on Windows',
+    radarDisconnected: (reason) => `not connected (${reason})`,
+    radarWarming: 'connected, but nobody in range yet, so it does not take part in the verdict',
+    radarSeen: (cm, at) => `someone at ${cm} cm (last frame ${at})`,
+    radarAbsent: (span, cm) => `no target for ${span}, last seen at ${cm}`,
+    radarFar: (cm) => `everything it sees is beyond ${cm}, the module range was probably reset, so it does not take part in the verdict`,
     live: (line) => `Live check: ${line}`,
     readingLocked: 'locked',
     readingUnlocked: 'unlocked',
@@ -252,7 +397,10 @@ const en: AreYouThereText = {
     changed: 'They left the computer, or came back.',
     awayLocked: (clock) => `The screen locked at ${clock}: they left the computer.`,
     awayIdle: (span, detail) => `No keyboard or mouse input for ${span}${detail}: they are probably not at the screen.`,
+    awayRadar: (span, cm) => `No radar target for ${span}${cm}: they are probably away from the desk.`,
     back: (clock, span) => `At ${clock} they were back, after ${span} away.`,
+    backRadar: (clock, span) => `The radar saw someone again at ${clock}: back at the desk after ${span} away.`,
+    passBy: (span, cm) => `The radar briefly saw someone pass the desk (${span}${cm}): probably not them coming back, so nothing changed.`,
   },
   envPrompt: {
     title: 'Are you there: environment',

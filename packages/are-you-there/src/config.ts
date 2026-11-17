@@ -2,6 +2,7 @@
 import type { ConfigGroup } from 'cortico/core/config-schema.ts';
 import type { Language } from 'cortico/core/language.ts';
 import type { WorldSection } from 'cortico/world.ts';
+import type { RadarThresholds } from './radar.ts';
 import { areYouThereText } from './text.ts';
 
 export const ARE_YOU_THERE_ID = 'are-you-there';
@@ -28,6 +29,22 @@ export interface AreYouThereConfigSection extends WorldSection {
   notifyAway: boolean;
   /** 回到桌前之后推事件。 */
   notifyBack: boolean;
+  /** 用毫米波雷达判定。装完要显式打开，没插硬件时打开只会一直报「没连上」。 */
+  radarEnabled: boolean;
+  /** 串口号；`auto` 表示每次连接时自己枚举 USB 串口。 */
+  radarPort: string;
+  /** 模块侧最大探测距离，0.1 m 单位；0 表示不动模块参数，只按下面那条过滤。 */
+  radarMaxDistance: number;
+  /** 软件侧上限：只有这么近的人才算「在桌前」，cm。同时用来发现模块参数被重置。 */
+  radarMaxCm: number;
+  /** 雷达连续多久没测到人算离开，秒。模块自己还有一段「目标消失延迟」。 */
+  radarAbsentSeconds: number;
+  /** 雷达连续测到人多久才撤销「离开」，秒；比这更短的当作路过。 */
+  radarBackSeconds: number;
+  /** 比上面那段时间还短的「有人」推一条路过事件。 */
+  radarPassByNotify: boolean;
+  /** 雷达报没人时，键鼠至少安静这么久才采信它，秒；0 表示完全听雷达的。 */
+  radarQuietSeconds: number;
 }
 
 export const DEFAULT_IDLE_MINUTES = 10;
@@ -37,6 +54,25 @@ export const MAX_IDLE_MINUTES = 1440;
 export const DEFAULT_MEDIA_KEYWORDS =
   'bilibili,哔哩哔哩,youtube,netflix,twitch,vlc,mpv,potplayer,mpc-hc,mpc-be,'
   + '爱奇艺,腾讯视频,优酷,芒果tv,抖音,douyin,斗鱼,虎牙,plex,emby,jellyfin';
+
+/** 模块最大距离，0.1 m 单位：7 是 0.7 m，100 是 10 m。 */
+export const MIN_RADAR_MAX_DISTANCE = 7;
+export const MAX_RADAR_MAX_DISTANCE = 100;
+export const DEFAULT_RADAR_MAX_DISTANCE = 14;
+
+/** 软件侧上限，cm。默认 1.2 m，比模块那 1.4 m 再收一点，站着的人还在里面。 */
+export const MIN_RADAR_MAX_CM = 30;
+export const MAX_RADAR_MAX_CM = 1000;
+export const DEFAULT_RADAR_MAX_CM = 120;
+
+export const DEFAULT_RADAR_ABSENT_SECONDS = 5;
+export const MAX_RADAR_ABSENT_SECONDS = 600;
+/** 默认 10 秒：站一下、伸个手不算回来，只推一条「有人经过」。 */
+export const DEFAULT_RADAR_BACK_SECONDS = 10;
+export const MAX_RADAR_BACK_SECONDS = 120;
+/** 雷达说没人、但键鼠一分钟内还动过时，多半是雷达漏检。 */
+export const DEFAULT_RADAR_QUIET_SECONDS = 60;
+export const MAX_RADAR_QUIET_SECONDS = 3600;
 
 export const ARE_YOU_THERE_DEFAULTS: AreYouThereConfigSection = {
   enabled: false,
@@ -48,7 +84,45 @@ export const ARE_YOU_THERE_DEFAULTS: AreYouThereConfigSection = {
   mediaKeywords: DEFAULT_MEDIA_KEYWORDS,
   notifyAway: true,
   notifyBack: true,
+  radarEnabled: false,
+  radarPort: 'auto',
+  radarMaxDistance: DEFAULT_RADAR_MAX_DISTANCE,
+  radarMaxCm: DEFAULT_RADAR_MAX_CM,
+  radarAbsentSeconds: DEFAULT_RADAR_ABSENT_SECONDS,
+  radarBackSeconds: DEFAULT_RADAR_BACK_SECONDS,
+  radarPassByNotify: true,
+  radarQuietSeconds: DEFAULT_RADAR_QUIET_SECONDS,
 };
+
+const clampInt = (value: unknown, fallback: number, min: number, max: number): number => {
+  const raw = typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : fallback;
+  return Math.min(max, Math.max(min, raw));
+};
+
+/** 串口号：空或 `auto` 都走自动枚举；写具体端口就照写。 */
+export function radarPortName(cfg: AreYouThereConfigSection): string {
+  const raw = typeof cfg.radarPort === 'string' ? cfg.radarPort.trim() : '';
+  return raw === '' ? 'auto' : raw;
+}
+
+/** 迟滞参数，毫秒。 */
+export function radarThresholds(cfg: AreYouThereConfigSection): RadarThresholds {
+  return {
+    maxCm: clampInt(cfg.radarMaxCm, DEFAULT_RADAR_MAX_CM, MIN_RADAR_MAX_CM, MAX_RADAR_MAX_CM),
+    absentMs: clampInt(cfg.radarAbsentSeconds, DEFAULT_RADAR_ABSENT_SECONDS, 1, MAX_RADAR_ABSENT_SECONDS) * 1000,
+    backMs: clampInt(cfg.radarBackSeconds, DEFAULT_RADAR_BACK_SECONDS, 0, MAX_RADAR_BACK_SECONDS) * 1000,
+  };
+}
+
+/** 模块最大距离，0.1 m 单位；0 表示不动模块。 */
+export function radarMaxDistance(cfg: AreYouThereConfigSection): number {
+  return clampInt(cfg.radarMaxDistance, DEFAULT_RADAR_MAX_DISTANCE, 0, MAX_RADAR_MAX_DISTANCE);
+}
+
+/** 雷达说没人时要求的键鼠安静时长，毫秒；0 表示不设这个门槛。 */
+export function radarQuietMs(cfg: AreYouThereConfigSection): number {
+  return clampInt(cfg.radarQuietSeconds, DEFAULT_RADAR_QUIET_SECONDS, 0, MAX_RADAR_QUIET_SECONDS) * 1000;
+}
 
 /** 夹在范围内的轮询间隔，秒；写坏了就退回默认值。 */
 export function clampedPollSeconds(cfg: AreYouThereConfigSection): number {
@@ -119,6 +193,69 @@ export function areYouThereConfigGroup(language: Language = 'zh'): ConfigGroup {
           type: 'boolean',
           title: c.checkScreen.title,
           description: c.checkScreen.description,
+          'x-hot': true,
+        },
+        [`${K}.radarEnabled`]: {
+          type: 'boolean',
+          title: c.radarEnabled.title,
+          description: c.radarEnabled.description,
+          'x-hot': true,
+        },
+        [`${K}.radarPort`]: {
+          type: 'string',
+          title: c.radarPort.title,
+          description: c.radarPort.description,
+          'x-hot': true,
+        },
+        [`${K}.radarMaxDistance`]: {
+          type: 'integer',
+          title: c.radarMaxDistance.title,
+          description: c.radarMaxDistance.description,
+          minimum: 0,
+          maximum: MAX_RADAR_MAX_DISTANCE,
+          'x-suffix': c.radarMaxDistance.suffix,
+          'x-hot': true,
+        },
+        [`${K}.radarMaxCm`]: {
+          type: 'integer',
+          title: c.radarMaxCm.title,
+          description: c.radarMaxCm.description,
+          minimum: MIN_RADAR_MAX_CM,
+          maximum: MAX_RADAR_MAX_CM,
+          'x-suffix': c.radarMaxCm.suffix,
+          'x-hot': true,
+        },
+        [`${K}.radarAbsentSeconds`]: {
+          type: 'integer',
+          title: c.radarAbsentSeconds.title,
+          description: c.radarAbsentSeconds.description,
+          minimum: 1,
+          maximum: MAX_RADAR_ABSENT_SECONDS,
+          'x-suffix': c.radarAbsentSeconds.suffix,
+          'x-hot': true,
+        },
+        [`${K}.radarBackSeconds`]: {
+          type: 'integer',
+          title: c.radarBackSeconds.title,
+          description: c.radarBackSeconds.description,
+          minimum: 0,
+          maximum: MAX_RADAR_BACK_SECONDS,
+          'x-suffix': c.radarBackSeconds.suffix,
+          'x-hot': true,
+        },
+        [`${K}.radarPassByNotify`]: {
+          type: 'boolean',
+          title: c.radarPassByNotify.title,
+          description: c.radarPassByNotify.description,
+          'x-hot': true,
+        },
+        [`${K}.radarQuietSeconds`]: {
+          type: 'integer',
+          title: c.radarQuietSeconds.title,
+          description: c.radarQuietSeconds.description,
+          minimum: 0,
+          maximum: MAX_RADAR_QUIET_SECONDS,
+          'x-suffix': c.radarQuietSeconds.suffix,
           'x-hot': true,
         },
         [`${K}.notifyAway`]: {
