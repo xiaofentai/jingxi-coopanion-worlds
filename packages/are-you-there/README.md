@@ -2,7 +2,7 @@
 
 显示名「在吗」，一个 Cortico World 扩展。三路信号一起看 ta 在不在：**屏幕锁没锁**、**键鼠还有没有动静**、**桌前有没有人**。第三路可选，接一颗 24 GHz 毫米波人体存在传感器（HLK-LD2402，USB 转 TTL 串口）；它能把「屏幕不动、键鼠也不动但其实人在」这一整类认出来——坐着读书、看 PDF、看纸质材料、用手柄。空闲到阈值时还能再判断一次「是在看东西还是真走了」。结论写进环境提示，状态变化时推一条事件。
 
-雷达那颗硬件的制作（BOM、外壳、接线）后续会开源。
+雷达那颗硬件的**模型与装配教程已经开源**：[串口人在传感器雷达外壳（MakerWorld，含教程）](https://makerworld.com.cn/zh/models/3279173-chuan-kou-ren-zai-chuan-gan-qi-lei-da-wai-ke#profileId-3874663)。BOM、接线与传感器参数见本页下方「硬件：HLK-LD2402」。
 
 > 为 Windows 的锁屏与输入机制编写，只在 Windows + Coopanion 上验证过。裸 Cortico 部署、macOS 与 Linux 都未测试。
 
@@ -222,6 +222,8 @@ Windows 锁屏时会拉起 `LogonUI.exe`，解锁后它退出，看一眼这个�
 `here_status`：报当前状态、持续了多久、上次离开了多久、键鼠空闲了多久、雷达连没连上／在多少厘米／多久没测到人、上一次空闲判定的结论，并当场再查一次锁屏，说明读到的与记录是否一致。
 
 ## 硬件：HLK-LD2402
+
+**外壳模型与装配教程**：[串口人在传感器雷达外壳（MakerWorld）](https://makerworld.com.cn/zh/models/3279173-chuan-kou-ren-zai-chuan-gan-qi-lei-da-wai-ke#profileId-3874663)。下面的接线、供电与参数说明适用于教程里那颗 HLK-LD2402。
 
 海凌科的 24 GHz 静止人体存在传感器，20×20 mm，串口 115200 8N1，正常模式每 165 ms 一行 ASCII。接线（手册表 4-1）：
 
