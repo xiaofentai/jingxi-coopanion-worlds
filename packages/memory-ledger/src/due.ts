@@ -26,36 +26,19 @@ export function entriesOf(doc: Doc): number {
   return doc.blocks.reduce((n, block) => n + block.entries.length, 0);
 }
 
-/** 这条规则实际会往卡上放多少字；取几块 / 每块一行的模式算不出有意义字数，返回 -1。 */
-function cardCharsOf(rule: Rule, doc: Doc): number {
-  if (rule.mode === 'newest' || rule.mode === 'newest+pin' || rule.mode === 'catalog') return -1;
-  if (rule.mode === 'marker') {
-    const marker = rule.arg.trim();
-    if (!marker) return doc.text.trim().length;
-    const lines = doc.text.split('\n');
-    const at = lines.findIndex((line) => line.trimStart().startsWith(marker));
-    return (at < 0 ? doc.text : lines.slice(0, at).join('\n')).trim().length;
-  }
-  return doc.text.trim().length;
-}
-
 export interface Usage {
-  unit: '条' | '字';
+  unit: '条';
   value: number;
   cap: number;
 }
 
 /**
- * 用量：单位跟着模式走（`catalog` / `full` 数条目，其余数字数）。
- * 没设上限（第 4 段留空）、或这个模式算不出有意义的字数，返回 null。
+ * 用量：ledger 只管目录，所以只有条目数；字数提醒线是 memory-card 的事。
+ * 第 4 段留空就是没有上限。
  */
 export function usageOf(rule: Rule, doc: Doc): Usage | null {
   if (!(rule.maxChars > 0)) return null;
-  if (rule.mode === 'catalog' || rule.mode === 'full') {
-    return { unit: '条', value: entriesOf(doc), cap: rule.maxChars };
-  }
-  const chars = cardCharsOf(rule, doc);
-  return chars < 0 ? null : { unit: '字', value: chars, cap: rule.maxChars };
+  return { unit: '条', value: entriesOf(doc), cap: rule.maxChars };
 }
 
 /** 到软限了没有。 */

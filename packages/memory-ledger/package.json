@@ -32,6 +32,8 @@
     "kind": "world",
     "api": 6,
     "displayName": "Memory Graph",
+    "webUiClient": "src/webui.js",
+    "webUiStyle": "src/webui.css",
     "tags": [
       "memory"
     ],
@@ -49,7 +51,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test tests/parse.test.ts tests/board.test.ts tests/write.test.ts tests/tools.test.ts tests/archive.test.ts tests/recall.test.ts tests/text.test.ts tests/recent.test.ts tests/prime.test.ts tests/audit.test.ts tests/route.test.ts",
+    "test": "node --test tests/parse.test.ts tests/board.test.ts tests/write.test.ts tests/tools.test.ts tests/archive.test.ts tests/recall.test.ts tests/text.test.ts tests/recent.test.ts tests/prime.test.ts tests/audit.test.ts tests/route.test.ts tests/settings.test.ts",
     "dump": "node scripts/dump.ts",
     "check": "node scripts/check.ts"
   },

@@ -25,3 +25,9 @@ export type { MergeResult, MoveResult } from './write.ts';
 export { DEFAULT_MAX_AGE_MS, DEFAULT_MIN_CHARS, DEFAULT_SENDERS, pickRecent, readRecent } from './recent.ts';
 export type { RecentOptions, RecentSay, SayEvent } from './recent.ts';
 export { PRIME_COOLDOWN_MS, PRIME_LIMIT, coolEnough, primeHits, primeKey, primeText } from './prime.ts';
+export {
+  LEDGER_RULE_FILES, SETTINGS_FILE,
+  clampSettings as clampLedgerSettings, readSettings as readLedgerSettings,
+  rulesText as ledgerRulesText, writeSettings as writeLedgerSettings,
+} from './settings.ts';
+export type { LedgerRule, LedgerSettings } from './settings.ts';

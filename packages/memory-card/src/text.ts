@@ -41,12 +41,11 @@ const zh: MemoryCardText = {
     rule: {
       title: (n) => `规则 ${n}`,
       description:
-        '一条一份：路径|模式|参数|字数上限|方向。模式：whole 整份；'
-        + 'marker 取到某标题之前（参数是标题，如 ## 按需）；'
-        + 'newest 取日期最新的几块（参数是块数）；newest+pin 再加固定块（参数写成 1,待办）。'
-        + '字数上限可以留空，表示这一份不单独限制、只受总字数约束。'
-        + '方向可省：tail 断尾（留开头，默认）；head 截头（按换行留结尾，日记类文件用这个，不为凑上限整块丢）。'
-        + '例：常驻.md|whole||2000、偏好与习惯.md|whole||2000',
+        '分工后 card 只装三份整份文件，默认已填好：常驻.md|whole||2000、'
+        + 'partner/偏好与习惯.md|whole||2000、记忆.md|whole||1600|tail。'
+        + '格式是 路径|whole|（留空）|字数上限|截断关键词。'
+        + '截断关键词只有 tail（留开头，默认）和 head（留结尾）；超过上限时卡上会写明还有多少字未载入。'
+        + '流水、大事记、games/* 归 memory-ledger，不在这里按块索引。',
       more: '同上。留空就跳过。',
     },
     extraRules: {
@@ -64,7 +63,7 @@ const zh: MemoryCardText = {
     },
     listMax: {
       title: '最多列几个',
-      description: '没有载入的文件、「未上卡的块」各最多列几条；超出的只报数量。',
+      description: '未载入的文件最多列几条；超出的只报数量。',
     },
     exclude: {
       title: '跳过的目录或文件',
@@ -94,12 +93,11 @@ const en: MemoryCardText = {
     rule: {
       title: (n) => `Rule ${n}`,
       description:
-        'One rule per field: path|mode|argument|character limit|side. Modes: whole; '
-        + 'marker (stops before a heading, argument is the heading); '
-        + 'newest (the newest dated blocks, argument is the count); '
-        + 'newest+pin (also keeps a named block, argument as 1,name). The character limit may be left empty: that file is then '
-        + 'limited by the card total only. The side may be left out: tail keeps the beginning (default); head keeps the end, '
-        + 'for a diary whose newest lines are at the bottom. Example: 常驻.md|whole||2000, 偏好与习惯.md|whole||2000',
+        'After the split, card loads three whole files; the defaults are already filled in: '
+        + '常驻.md|whole||2000, partner/偏好与习惯.md|whole||2000, 记忆.md|whole||1600|tail. '
+        + 'Format: path|whole|(empty)|character limit|cut keyword. '
+        + 'Only tail (keep the beginning, default) and head (keep the end) are accepted; the card reports how many characters were left out. '
+        + 'Streams, the milestone list and games/* belong to memory-ledger — no block index here.',
       more: 'Same as above. Empty fields are skipped.',
     },
     extraRules: {
@@ -117,7 +115,7 @@ const en: MemoryCardText = {
     },
     listMax: {
       title: 'List at most',
-      description: 'How many files left out and blocks not on the card to list; the rest are counted only.',
+      description: 'How many files left out to list; the rest are counted only.',
     },
     exclude: {
       title: 'Folders and files skipped',

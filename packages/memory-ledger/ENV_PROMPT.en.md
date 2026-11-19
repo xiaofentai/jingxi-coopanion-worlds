@@ -1,6 +1,6 @@
 ## Memory Graph
 
-What follows was read from disk again when the prefix was built; it is not what you are writing now, and it does not refresh in the middle of a session. Each section starts with its file and that file's modification time. Files in the listing are not on the board: open them before answering anything about them.
+What follows was read from disk again when the prefix was built; it is not what you are writing now, and it does not refresh in the middle of a session. card loads 常驻 / preferences / 记忆 whole; this world only gives the index of three streams and does not duplicate those files.
 
 {{ml.health}}
 
@@ -14,16 +14,14 @@ What follows was read from disk again when the prefix was built; it is not what 
 
 {{ml.card}}
 
-{{ml.index}}
-
 ### How to use it
 
 - The top line — "Memory: N files | covers … to … | today …" — is the **heartbeat**. A dropped file count, or a coverage date frozen at yesterday, means a file is not being read or the world is not running. Investigate that before assuming "nothing much happened lately".
 - Read the "Coverage" section at the end first: how far the memory reaches, which days are missing, whether a day sits in two files at once. If something is missing or doubled, put that right before tidying anything else.
-- **Nothing is truncated.** When a file is followed by "past the reminder line", it simply grew longer than the setting (time to trim it); nothing is missing, so do not assume a gap.
-- "Due for tidying" is a **to-do list**: which day is already past its window, which file has more entries than its cap. It does not mean anything is lost — every block gets a line, and that line is still there.
-- "Blocks not on the board" only appears for `newest` / `newest+pin` rules: open them before tidying.
-- Nothing on the board means nothing is known; do not fill the gap with what you remember.
+- **One line per block, no day dropped.** "Past the reminder line" means the entries grew (time to trim them), not that a day was removed.
+- "Due for tidying" is a **to-do list**: which day is already past its window, which file has more entries than its cap. It does not mean anything is lost — the line is still there.
+- 常驻 / preferences / 记忆 are loaded whole by card and are not repeated here; read card's text when you need them.
+- A day missing from the index does not mean it never happened; use `ml_recall` by date instead of filling the gap from memory.
 
 ### Writing to the memory
 
@@ -64,5 +62,5 @@ One thing per entry, 600 characters at most. **Compress as you write**: what you
    - **Do not move blocks with `move_file` by line range** — one line off and the next day's opening goes with it.
 3. **A day past its window one layer back moves whole into the flow archive**: `ml_move(from="近期.md", block="11-03", to="archive/近期-流水.md")`, with no `text` and **`to` always written** (there are two archives; the tool will not guess).
    - Once moved, that day leaves the index. **What survives is only what you wrote into `大事记`.** So take one second before moving: does this day hold anything worth keeping for a long time?
-4. **Ask yourself once**: is there anything today you want in `大事记`? If so, `ml_add(file="大事记.md", block="2026-11", text="**11-12**：…")`; if not, skip it — nobody is counting.
+4. **Ask yourself once**: is there anything today you want in `大事记`? If so, `ml_add(file="大事记.md", text="**2026-11-19**：…")`; if not, skip it — nobody is counting.
 5. One thing at a time, then report: which blocks moved, how many characters each, and the block headings both files now have.

@@ -17,8 +17,9 @@ import { buildBoard } from './board.ts';
 import { ensureArchiveFile } from './archive.ts';
 import {
   DEFAULT_ARCHIVE_FILE, DEFAULT_PAST_FILE, DEFAULT_TODAY_FILE,
-  MEMORY_LEDGER_ID, memoryLedgerConfigGroup, rulesText, splitList, type MemoryLedgerConfigSection,
+  MEMORY_LEDGER_ID, memoryLedgerConfigGroup, splitList, type MemoryLedgerConfigSection,
 } from './config.ts';
+import { clampSettings, readSettings, rulesText, writeSettings, type LedgerSettings } from './settings.ts';
 import { readRuleDocs } from './audit.ts';
 import { PRIME_LIMIT, PRIME_PER_DAY, coolEnough, primeHits, primeKey, primeText, withinDailyBudget } from './prime.ts';
 import { readRecent, type RecentSay } from './recent.ts';
@@ -49,6 +50,8 @@ export interface MemoryLedgerWorldOptions {
   cfg: MemoryLedgerConfigSection;
   /** 部署目录，相对目录以它为准。 */
   botDir: string;
+  /** 数据目录，索引规则设置放在这里。 */
+  dataDir: string;
   /** 卡抬头的时区。 */
   timezone: string;
 }
@@ -81,10 +84,13 @@ export class MemoryLedgerWorld implements World {
   private lastNote = '';
 
   private readonly opts: MemoryLedgerWorldOptions;
+  /** 三份索引规则，来自独立设置文件；配置页里的旧规则只在首次迁移时读。 */
+  private settings: LedgerSettings;
 
   // 不用参数属性：Node 的 strip-only 模式不认这种写法，测试就 import 不了这个文件
   constructor(opts: MemoryLedgerWorldOptions) {
     this.opts = opts;
+    this.settings = readSettings(opts.dataDir, opts.cfg);
   }
 
   private get cfg(): MemoryLedgerConfigSection {
@@ -123,9 +129,9 @@ export class MemoryLedgerWorld implements World {
     const day = today(this.opts.timezone);
     const result = buildBoard({
       folder: this.boardFolder(),
-      rules: rulesText(this.cfg),
-      listOthers: this.cfg.listOthers,
-      listMax: Math.max(0, this.cfg.listMax),
+      rules: rulesText(this.settings),
+      listOthers: false,
+      listMax: 0,
       exclude: splitList(this.cfg.exclude),
       stamp: stamp(this.opts.timezone),
       today: day,
@@ -151,7 +157,6 @@ export class MemoryLedgerWorld implements World {
       'ml.health': health,
       'ml.meta': result.meta,
       'ml.card': result.card,
-      'ml.index': result.index,
       'ml.policy': result.policy,
       'ml.layers': layers,
       'ml.hint': hint,
@@ -167,7 +172,7 @@ export class MemoryLedgerWorld implements World {
   tools(): ToolDef[] {
     return createLedgerTools({
       folder: () => this.boardFolder(),
-      rules: () => rulesText(this.cfg),
+      rules: () => rulesText(this.settings),
       backupDir: () => join(this.opts.botDir, 'data', 'memory-ledger'),
       today: () => today(this.opts.timezone),
       todayFile: () => this.cfg.todayFile ?? '',
@@ -560,11 +565,68 @@ export class MemoryLedgerWorld implements World {
     this.host = null;
   }
 
+  /** 「索引规则」面板：三份固定文件，每份只问天数和条数。 */
+  private panelSections(language: Language): Array<Record<string, unknown>> {
+    const t = memoryLedgerText(language);
+    return [{
+      id: 'rules',
+      title: t.panel.title,
+      description: t.panel.description,
+      fields: this.settings.rules.flatMap((rule, index) => [
+        {
+          key: `days${index}`, label: t.panel.days(rule.file), kind: 'int',
+          value: rule.days, min: 0, max: 3650, suffix: t.panel.daysSuffix, hint: t.panel.daysHint,
+        },
+        {
+          key: `cap${index}`, label: t.panel.cap(rule.file), kind: 'int',
+          value: rule.cap, min: 0, max: 10000, suffix: t.panel.capSuffix, hint: t.panel.capHint,
+        },
+      ]),
+    }];
+  }
+
+  private panelPayload(language: Language): Record<string, unknown> {
+    const t = memoryLedgerText(language);
+    return {
+      sections: this.panelSections(language),
+      labels: { saved: t.panel.saved, failed: t.panel.saveFailed('') },
+    };
+  }
+
+  private panelInvoke(
+    panel: string,
+    method: string,
+    args: unknown[],
+    language: Language,
+  ): Record<string, unknown> {
+    if (panel !== 'rules') throw new Error(`no such panel: ${panel}`);
+    if (method === 'status') return this.panelPayload(language);
+    if (method === 'save') {
+      const incoming = (args?.[0] ?? {}) as Record<string, unknown>;
+      const rules = this.settings.rules.map((rule, index) => ({
+        ...rule,
+        days: typeof incoming[`days${index}`] === 'number' ? incoming[`days${index}`] as number : rule.days,
+        cap: typeof incoming[`cap${index}`] === 'number' ? incoming[`cap${index}`] as number : rule.cap,
+      }));
+      this.settings = clampSettings({ rules }, this.settings);
+      writeSettings(this.opts.dataDir, this.settings);
+      return this.panelPayload(language);
+    }
+    throw new Error(`no such method: ${panel}.${method}`);
+  }
+
   webUi(language: Language = 'zh'): WorldWebUiDecl {
     const t = memoryLedgerText(language);
     const chosen = ENV_PROMPT_FILES[textLanguage(this.language)];
     return {
       label: t.label,
+      panels: [{
+        id: 'rules',
+        title: t.panel.title,
+        description: t.panel.description,
+        getMethods: ['status', 'save'],
+      }],
+      invoke: (panel: string, method: string, args: unknown[]) => this.panelInvoke(panel, method, args, language),
       config: [memoryLedgerConfigGroup(language)],
       promptDocs: [{
         key: `worlds.${MEMORY_LEDGER_ID}.envPrompt`,
@@ -575,7 +637,7 @@ export class MemoryLedgerWorld implements World {
         vars: PROMPT_VARS.map((name) => ({
           name,
           description: t.envPrompt.vars[name],
-          ...(name === 'ml.card' || name === 'ml.index' ? { multiline: true } : {}),
+          ...(name === 'ml.card' ? { multiline: true } : {}),
         })),
       }],
     };

@@ -1,0 +1,4 @@
+/* 只作用于「索引规则」面板，长相沿用控制台自己的卡片与行。 */
+.ml-settings .companion-label {
+  min-width: 12em;
+}

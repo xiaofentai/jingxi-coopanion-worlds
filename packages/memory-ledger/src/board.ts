@@ -16,11 +16,10 @@ import { FIRST_LINE_MAX, dayDates, firstLine as firstLineOf, parseDoc, shiftDate
 export { SOFT_RATIO } from './due.ts';
 
 /**
- * `whole` 整份（有字数上限，超了截断）；`full` 整份**不截断**，只靠条目数兜住；
- * `marker` 取到某个标题之前；`newest` 取日期最新的几块；
- * `newest+pin` 再固定带上某几块；`catalog` 每个日期块只出一行（标题 + 首行）。
+ * ledger 只做索引：`catalog` 每个日期块一行（标题 + 首行），月块 / 清单只给件数。
+ * 整份装入是 memory-card 的职责；那些模式不在这里实现，避免同一个概念有两套判据。
  */
-export type RuleMode = 'whole' | 'full' | 'marker' | 'newest' | 'newest+pin' | 'catalog';
+export type RuleMode = 'catalog';
 /** 超过字数上限时切哪一头：`tail` 断尾（留开头，默认）；`head` 截头（留结尾）。 */
 export type Cut = 'head' | 'tail';
 
@@ -81,10 +80,7 @@ export interface BoardResult {
   cover: CoverReport;
 }
 
-const MODES: readonly RuleMode[] = ['whole', 'full', 'marker', 'newest', 'newest+pin', 'catalog'];
-
-/** 第四段按「字数」解释的模式；`catalog` / `full` 的第四段是条目数。 */
-const BY_CHARS: readonly RuleMode[] = ['whole', 'marker', 'newest', 'newest+pin'];
+const MODES: readonly RuleMode[] = ['catalog'];
 
 /*
  * 目录一行留多少字：就是 `FIRST_LINE_MAX`（`parse.ts`）。
@@ -285,26 +281,11 @@ function coverSection(cover: CoverReport, language: 'zh' | 'en'): string {
   ].join('\n');
 }
 
-/**
- * 整份交给卡：**不截断**。
- *
- * 以前 `路径|whole||1600` 会切到 1600 字，切掉的部分只在卡上说一句「已截断」——
- * 那也是一种静默丢内容。现在这个数字改成**提醒线**：照给全文，只在超了的时候提一句该收了。
- */
-function whole(text: string): { text: string; truncated: number; cut: Cut } {
-  return { text: text.trim(), truncated: 0, cut: 'tail' };
-}
-
 interface Picked {
   text: string;
-  truncated: number;
-  cut: Cut;
-  from?: string;
   blocks: number;
-  note?: 'no-marker';
-  /** `catalog` 超预算时丢掉的天数：必须在卡上报出来，不能静默。 */
+  /** 极端情况下目录超过 100 行，丢掉的行数必须报出来，不能静默。 */
   dropped?: number;
-  omitted?: Array<{ title: string; chars: number }>;
 }
 
 /**
@@ -338,12 +319,10 @@ function catalogRows(doc: Doc): Array<{ block: Block; line: string; chars: numbe
  */
 function catalogOf(doc: Doc): Picked {
   const rows = catalogRows(doc);
-  if (!rows.length) return { text: '', truncated: 0, cut: 'head', blocks: 0 };
+  if (!rows.length) return { text: '', blocks: 0 };
   const kept = rows.slice(Math.max(0, rows.length - CATALOG_MAX_ROWS));
   return {
     text: kept.map((row) => row.line).join('\n'),
-    truncated: 0,
-    cut: 'head',
     blocks: kept.length,
     ...(rows.length > kept.length ? { dropped: rows.length - kept.length } : {}),
   };
@@ -378,44 +357,8 @@ function handleOfBlock(block: Block): string {
   return block.kind === 'day' ? (block.date ?? block.title).slice(5) : (block.date ?? block.title);
 }
 
-function pick(doc: Doc, rule: Rule): Picked {
-  // full 和 whole 在「怎么取」上一样（整份、不截断），区别只在第 4 段怎么解释：
-  // whole 是字数提醒线，full 是条目数上限（见 audit.ts / tools.ts）。
-  if (rule.mode === 'whole' || rule.mode === 'full') return { ...whole(doc.text), blocks: 0 };
-  if (rule.mode === 'catalog') return catalogOf(doc);
-  if (rule.mode === 'marker') {
-    const marker = rule.arg.trim();
-    if (!marker) return { ...whole(doc.text), blocks: 0 };
-    const at = doc.text.split('\n').findIndex((line) => line.trimStart().startsWith(marker));
-    if (at < 0) return { ...whole(doc.text), blocks: 0, note: 'no-marker' };
-    return { ...whole(doc.text.split('\n').slice(0, at).join('\n')), blocks: 0 };
-  }
-
-  // 分块模式：按日期取最新的几块，保持文件里的原顺序
-  const parts = rule.arg.split(',');
-  const asked = Number.parseInt(parts[0]?.trim() ?? '', 10);
-  const count = Number.isFinite(asked) && asked > 0 ? asked : 2;
-  const ranked = doc.blocks.filter((b) => b.key > 0).sort((a, b) => b.key - a.key);
-  const chosen = new Set(ranked.slice(0, count));
-  const pin = (parts[1] ?? '').trim();
-  if (rule.mode === 'newest+pin' && pin) {
-    for (const block of doc.blocks) if (block.title.includes(pin)) chosen.add(block);
-  }
-  const picked = doc.blocks.filter((b) => chosen.has(b));
-
-  const front = doc.front.trim() ? `${doc.front.trimEnd()}\n\n` : '';
-  const joined = front + picked.map((b) => `${b.heading}\n${b.body}`).join('');
-  const onCard = new Set(picked);
-  const omitted = doc.blocks
-    .filter((block) => !onCard.has(block) && block.key > 0)
-    .map((block) => ({ title: block.title, chars: block.heading.length + 1 + block.body.length }));
-  return {
-    text: joined.trim(),
-    truncated: 0,
-    cut: 'tail',
-    blocks: picked.length,
-    ...(omitted.length ? { omitted } : {}),
-  };
+function pick(doc: Doc, _rule: Rule): Picked {
+  return catalogOf(doc);
 }
 
 
@@ -515,13 +458,9 @@ function policyOf(rules: readonly Rule[], language: 'zh' | 'en'): string {
   const t = TEXT[language];
   const parts: string[] = [];
   for (const rule of rules) {
-    if (rule.mode === 'catalog') {
-      const days = Number.parseInt(rule.arg.trim(), 10);
-      if (Number.isFinite(days) && days > 0) parts.push(t.policyDays(rule.path, days));
-    }
-    if ((rule.mode === 'catalog' || rule.mode === 'full') && rule.maxChars > 0) {
-      parts.push(t.policyCap(rule.path, rule.maxChars));
-    }
+    const days = Number.parseInt(rule.arg.trim(), 10);
+    if (Number.isFinite(days) && days > 0) parts.push(t.policyDays(rule.path, days));
+    if (rule.maxChars > 0) parts.push(t.policyCap(rule.path, rule.maxChars));
   }
   return t.policyLine(parts, parts.length === 0);
 }
@@ -552,11 +491,9 @@ export function buildBoard(input: BoardInput): BoardResult {
     const loaded: Loaded[] = [];
     const missing: string[] = [];
     const sections: string[] = [];
-    const omitted: Array<{ file: string; title: string; chars: number }> = [];
     const due: Array<{ file: string; text: string }> = [];
     const docs: Doc[] = [];
     let chars = 0;
-    let long = 0;
 
     for (const rule of rules) {
       const file = resolveIn(folder, rule.path);
@@ -575,24 +512,12 @@ export function buildBoard(input: BoardInput): BoardResult {
       const section = [
         `### ${rule.path}（${read.mtime}）`,
         '',
-        ...(picked.from ? [t.headFrom(picked.from), ''] : []),
         picked.text,
-        ...(picked.note === 'no-marker' ? ['', t.noMarker(rule.arg)] : []),
         ...(picked.dropped ? ['', t.catalogDrop(picked.dropped)] : []),
-        // 第四段在 whole / marker 下是「提醒线」：超了照给全文，只提一句。
-        // catalog 和 full 的第四段是条目数，由 audit.ts 按 80% 报账，不走这里。
-        ...(BY_CHARS.includes(rule.mode) && rule.maxChars > 0 && picked.text.length > rule.maxChars
-          ? ['', t.overLong(rule.path, picked.text.length, rule.maxChars)]
-          : []),
       ].join('\n');
-      if (BY_CHARS.includes(rule.mode) && rule.maxChars > 0 && picked.text.length > rule.maxChars) long += 1;
       chars += section.length;
       sections.push(section);
-      for (const block of picked.omitted ?? []) omitted.push({ file: rule.path, ...block });
-      // 目录与 full 只算账、不剪卡：窗口外的天与到 80% 的条目进「该整理的」
-      if (rule.mode === 'catalog' || rule.mode === 'full') {
-        for (const text of dueOf(rule, read.doc, input.today)) due.push({ file: rule.path, text });
-      }
+      for (const text of dueOf(rule, read.doc, input.today)) due.push({ file: rule.path, text });
       loaded.push({ path: rule.path, mode: rule.mode, kept: picked.text.length, source: read.doc.text.length, blocks: picked.blocks });
     }
 
@@ -604,13 +529,11 @@ export function buildBoard(input: BoardInput): BoardResult {
     const cover = coverOf(docs, input.today, input.language, archived);
     const known = new Set(rules.map((r) => r.path));
     const listing = input.listOthers ? listOthers(folder, input.exclude, known, input.listMax, input.language) : { index: '', others: [] };
-    const omittedText = omittedSection(omitted, input.listMax, input.language);
     const dueText = dueSection(due, input.listMax, input.language);
 
     const card = [
       ...sections,
       ...notes,
-      ...(omittedText ? [omittedText] : []),
       ...(dueText ? [dueText] : []),
       coverSection(cover, input.language),
     ].join('\n\n').trim();
@@ -620,7 +543,7 @@ export function buildBoard(input: BoardInput): BoardResult {
       policy: policyOf(rules, input.language),
       index: listing.index,
       meta: loaded.length
-        ? t.meta(loaded.length, chars, omitted.length, cover.missing.length, due.length, long, input.stamp)
+        ? t.meta(loaded.length, chars, 0, cover.missing.length, due.length, 0, input.stamp)
         : t.metaEmpty(input.stamp),
       loaded,
       missing,

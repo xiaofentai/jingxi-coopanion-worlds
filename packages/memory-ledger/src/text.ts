@@ -8,7 +8,7 @@ export type TextLanguage = 'zh' | 'en';
  * `ml.layers` 是三层各自的文件名（今天那份 / 再往前那份 / 归档）；
  * `ml.health` 是心跳：几份、覆盖到哪天——它变了说明有东西没读到。
  */
-export const PROMPT_VARS = ['ml.health', 'ml.meta', 'ml.card', 'ml.index', 'ml.policy', 'ml.layers', 'ml.hint'] as const;
+export const PROMPT_VARS = ['ml.health', 'ml.meta', 'ml.card', 'ml.policy', 'ml.layers', 'ml.hint'] as const;
 
 export function textLanguage(language: Language): TextLanguage {
   return language === 'en' ? 'en' : 'zh';
@@ -47,23 +47,24 @@ const ZH = {
     preactivate: { title: '预激活', description: '打开后，他刚说完一句，插件自己替她查一次，最多把两条「对得上」的旧事递到眼前（同一块两小时内不重复）。**不靠她自觉**，和上面那个实验是两条路。代价是每 30 秒看一眼事件库，偶尔会多一次注入。**改完下一拍（30 秒内）生效，不用重启。**' },
     preactivatePerDay: { title: '预激活每天最多几次', description: '一天最多把旧事递到她眼前几次，默认 6；0 表示不限。同一块另有 2 小时冷却，所以实际频率通常比这个数还低。**按次数记账，不是按概率抽签**——概率没法预测今天被打扰几回。改完下一拍生效，不用重启。' },
     gameRoute: { title: '开局时把游戏经验推给她', description: '打开后，检测到她进了一局（发牌之后），把 `games/那款游戏.md` 里的「读局」和**对应身份那一块**整段推给她一次，同一局不再重复。对应关系写在那个文件的**文件头**（`family: werewolf`、`wolf: 当狼`），所以新出一款游戏不用改插件。**走推送、不进前缀**：前缀在 session 开始时已经冻结，局中开局只能追加。改完下一拍生效，不用重启。' },
-    rule: {
-      title: (n: number) => `规则 ${n}`,
-      description: '路径|模式|参数|上限。模式共六种：whole 整份、full 整份、marker 取到某标题之前、newest 只取最新几块、newest+pin 再固定带上标题含某个词的块、catalog 每块只出一行。选中的正文都不截断；其中 whole / marker / newest / newest+pin 的第四段是**字数**提醒线，`full` 的第四段是**条目上限**。newest 的「参数」写块数（默认 2），newest+pin 写「块数,固定块名」（如 `2,还挂着`）；没选上的块进「未上卡的块」。catalog 的「参数」= 保留几天、「上限」= 条目上限。条目上限一律按 80% 开始提醒、到 100% 拒绝写入。例：常驻.md|whole||1600 ／ 大事记.md|full||120 ／ 超近期.md|catalog|4|',
-      more: '同上；留空表示这一槽不用。',
-    },
-    extraRules: { title: '更多规则', description: '分号分隔，格式同上。' },
-
-    listOthers: { title: '列出其余文件', description: '没进规则的 .md 只列路径与首行。' },
-    listMax: { title: '其余文件上限', description: '最多列几个；超出的只报数量。' },
-    exclude: { title: '跳过的目录', description: '目录名或文件名，逗号分隔。' },
+  },
+  panel: {
+    title: '索引规则',
+    description: '只管 ledger 的三份流水：留几天、最多几条。文件固定；常驻 / 偏好 / 记忆由 memory-card 整份装，不在这里重复。',
+    days: (file: string) => `${file} 保留天数`,
+    cap: (file: string) => `${file} 条目上限`,
+    daysHint: '超过这个天数的块进「该整理的」。0 = 不设窗口。',
+    capHint: '到 80% 报账，到 100% 拒写。0 = 不限。',
+    daysSuffix: '天',
+    capSuffix: '条',
+    saved: '已保存，下一拍生效',
+    saveFailed: (reason: string) => `保存失败：${reason}`,
   },
   envPrompt: {
     title: '记忆树网的提示词',
-    description: '说明 ml.card / ml.index / ml.meta / ml.policy 分别是什么、什么时候要用。',
+    description: '说明 ml.card / ml.meta / ml.policy 分别是什么、什么时候要用。',
     vars: {
-      'ml.card': '折好的一页：各份的正文，末尾附「该整理的」与「覆盖」。',
-      'ml.index': '没进规则的 .md 清单，只有路径与首行。',
+      'ml.card': '三份流水的目录：一天一行，末尾附「该整理的」与「覆盖」。',
       'ml.meta': '一行摘要：读取几份、多少字、几处该整理、几份偏长、缺几天、生成时间。',
       'ml.policy': '从规则算出来的口径：各份留几天 / 几条，随设置变。',
       'ml.layers': '三层各自的文件名（今天那份 / 再往前那份 / 归档），以及 ml_move 不写 to 时的默认去向。',
@@ -96,23 +97,24 @@ const EN = {
     preactivate: { title: 'Pre-activation', description: 'When on, the world looks up the memory itself right after he speaks and puts up to two matched old entries in front of her (the same block is not pushed twice within two hours). **This does not rely on her remembering to ask.** It checks the event store every 30 seconds. **Takes effect on the next tick — no restart.**' },
     preactivatePerDay: { title: 'Pre-activation pushes per day', description: 'How many times a day it may put something in front of her, 6 by default; 0 means no limit. Each block also has its own two-hour cooldown, so the real rate is usually lower. **A count, not a dice roll** — a probability cannot tell you how often you will be interrupted today. Applies on the next tick, no restart.' },
     gameRoute: { title: 'Push game notes when a round starts', description: 'When on, once she joins a round (after roles are dealt) it pushes that game\'s "读局" block plus the block for **her role**, once per round. The mapping lives in the file itself, in the header (`family: werewolf`, `wolf: 当狼`), so a new game needs no plugin change. **It is a push, not the prefix**: the prefix is frozen at session start, so a round starting mid-session can only be appended to. Applies on the next tick, no restart.' },
-    rule: {
-      title: (n: number) => `Rule ${n}`,
-      description: 'path|mode|argument|limit. Six modes: whole and full take the whole file, marker takes everything before a heading, newest takes only the newest few blocks, newest+pin additionally keeps blocks whose title contains a fixed word, catalog prints one line per block. Chosen text is never truncated; for whole / marker / newest / newest+pin the fourth field is a **character** reminder line, for `full` it is the **entry cap**. For newest the argument is the block count (default 2); for newest+pin it is "count,fixed-word" (e.g. `2,还挂着`). Blocks not chosen are listed under "blocks not on the board". For catalog the argument is the day window and the fourth field the entry cap. Entry caps start reporting at 80% and refuse writes at 100%. Example: 常驻.md|whole||1600 ／ 大事记.md|full||120 ／ 超近期.md|catalog|4|',
-      more: 'Same as above; leave empty to skip this slot.',
-    },
-    extraRules: { title: 'More rules', description: 'Separated by semicolons, same format.' },
-
-    listOthers: { title: 'List other files', description: 'Markdown files not in any rule: path and first line only.' },
-    listMax: { title: 'Other files limit', description: 'How many to list; the rest are counted.' },
-    exclude: { title: 'Skip', description: 'Directory or file names, comma separated.' },
+  },
+  panel: {
+    title: 'Index rules',
+    description: 'Only the three ledger streams: how many days to keep and the entry cap. Files are fixed; 常驻 / preferences / 记忆 are loaded whole by memory-card and are not duplicated here.',
+    days: (file: string) => `${file} keep days`,
+    cap: (file: string) => `${file} entry cap`,
+    daysHint: 'Blocks older than this go to "Due for tidying". 0 = no window.',
+    capHint: 'Reported at 80%, writes refused at 100%. 0 = no limit.',
+    daysSuffix: 'days',
+    capSuffix: 'entries',
+    saved: 'Saved; takes effect on the next tick',
+    saveFailed: (reason: string) => `Save failed: ${reason}`,
   },
   envPrompt: {
     title: 'The Memory Graph prompt',
-    description: 'What ml.card, ml.index, ml.meta and ml.policy hold, and when to use them.',
+    description: 'What ml.card, ml.meta and ml.policy hold, and when to use them.',
     vars: {
-      'ml.card': 'The folded page: each file\'s text, then overdue days and the coverage line.',
-      'ml.index': 'Files not in any rule: path and first line.',
+      'ml.card': 'The index of three streams: one line per day, then overdue days and the coverage line.',
       'ml.meta': 'One line: files, characters, blocks left off, days missing, when built.',
       'ml.policy': 'The policy derived from the rules: days or entries kept per file. Follows the settings.',
       'ml.layers': 'The three layer files (today / one layer back / archive), and where `ml_move` goes when `to` is left out.',

@@ -138,9 +138,9 @@ export function audit(
   });
   const archived = archiveFile ? archivedDates(folder, archiveFile, year) : [];
   const cover = coverOf(docs.map(({ doc }) => doc), today, 'zh', archived);
-  // 只给「有条目上限」的那几份抽样：它们要按条数整理，才需要看分布
+  // 只给「有条目上限」的 catalog 抽样：它们要按条数整理，才需要看分布
   const samples = docs
-    .filter(({ rule }) => rule.maxChars > 0 && (rule.mode === 'catalog' || rule.mode === 'full'))
+    .filter(({ rule }) => rule.maxChars > 0 && rule.mode === 'catalog')
     .map(({ rule, doc }) => ({ file: rule.path, lines: sampleEntries(doc) }))
     .filter((item) => item.lines.length > 0);
   const { tidy, overdue } = tidyOf(docs, today);

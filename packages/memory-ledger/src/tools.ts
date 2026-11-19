@@ -135,10 +135,10 @@ function todayFileOf(opts: LedgerToolOptions): string {
   return opts.todayFile().trim() || DEFAULT_TODAY_FILE;
 }
 
-/** 这份文件的条目上限：来自它自己的规则（`catalog` / `full` 的第 4 段），没有就是 0（不管）。 */
+/** 这份文件的条目上限：来自它自己的 catalog 规则第 4 段，没有就是 0（不管）。 */
 function entryCapOf(rules: string, rel: string): number {
   for (const rule of parseRules(rules).rules) {
-    if (rule.path === rel && (rule.mode === 'catalog' || rule.mode === 'full') && rule.maxChars > 0) return rule.maxChars;
+    if (rule.path === rel && rule.mode === 'catalog' && rule.maxChars > 0) return rule.maxChars;
   }
   return 0;
 }

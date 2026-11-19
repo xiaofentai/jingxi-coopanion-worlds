@@ -33,7 +33,7 @@ const DSJ = [
   '',
 ].join('\n');
 
-const RULES = '超近期.md|whole||7000|head; 近期.md|whole||4000|head';
+const RULES = '超近期.md|catalog|4|; 近期.md|catalog|21|';
 
 /** 目录模式、不设窗口：只看首行检查，不掺「窗口外的天」。 */
 const CATALOG_RULES = '超近期.md|catalog||; 近期.md|catalog||';
@@ -279,7 +279,7 @@ test('ml_check 报出条目超额的那一份', () => {
     const receipt = box.run('ml_check', {});
     // 大事记 有 10-14 / 10-20 / 11-01 共 3 条，上限 2
     assert.match(receipt, /大事记\.md「（整份）」：已到 3\/2 条（150%）/);
-  }, '超近期.md', '超近期.md|whole||7000; 大事记.md|catalog||2');
+  }, '超近期.md', '超近期.md|catalog|4|; 大事记.md|catalog||2');
 });
 
 test('ml_check 没有要整理的就直说没有', () => {
@@ -288,8 +288,8 @@ test('ml_check 没有要整理的就直说没有', () => {
   }, '超近期.md', '');
 });
 
-/** 大事记 的上限写在它自己的规则里：`full` 的第 4 段是条目数。 */
-const RULES_CAP = `${RULES}; 大事记.md|full||5`;
+/** 大事记 的上限写在它自己的 catalog 规则第 4 段。 */
+const RULES_CAP = `${RULES}; 大事记.md|catalog|3650|5`;
 
 test('ml_add：到 80% 报到但照写，写满上限后拒绝', () => {
   sandbox((box) => {
@@ -706,7 +706,7 @@ test('ml_add 到清单文件：追加进它在的那一块，不另造日块', (
     const after = box.read('大事记.md');
     assert.match(after, /\*\*2026-11-15\*\*：今天补记一条。/);
     assert.doesNotMatch(after, /## 11-15/);
-  }, '大事记.md', '大事记.md|full||80', '2026-11-15');
+  }, '大事记.md', '大事记.md|catalog|3650|80', '2026-11-15');
 });
 
 test('大事记还带月份标题时，ml_add 也不造日块', () => {
@@ -715,7 +715,7 @@ test('大事记还带月份标题时，ml_add 也不造日块', () => {
     const after = box.read('大事记.md');
     assert.doesNotMatch(after, /## 11-15/);
     assert.match(after, /\*\*2026-11-15\*\*：补一条。/);
-  }, '大事记.md', '大事记.md|full||80', '2026-11-15');
+  }, '大事记.md', '大事记.md|catalog|3650|80', '2026-11-15');
 });
 
 test('到期 ≥2 块时，写盘回执末尾提醒一次；同一天不再念叨', () => {

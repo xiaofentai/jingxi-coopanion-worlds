@@ -32,14 +32,14 @@ export interface MemoryCardConfigSection extends WorldSection {
 export const MEMORY_CARD_DEFAULTS: MemoryCardConfigSection = {
   enabled: false,
   folder: 'workspace',
-  rule1: '',
-  rule2: '',
-  rule3: '',
+  rule1: '常驻.md|whole||2000',
+  rule2: 'partner/偏好与习惯.md|whole||2000',
+  rule3: '记忆.md|whole||1600|tail',
   rule4: '',
   rule5: '',
   extraRules: '',
   totalChars: 6000,
-  listOthers: true,
+  listOthers: false,
   listMax: 12,
   exclude: '.git,node_modules,archive,handoffs,blobs',
 };

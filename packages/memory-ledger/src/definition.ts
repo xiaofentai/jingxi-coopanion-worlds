@@ -9,7 +9,7 @@ export const MEMORY_LEDGER: WorldDefinition<MemoryLedgerConfigSection> = {
   defaults: () => ({ ...MEMORY_LEDGER_DEFAULTS }),
   configOptions: () => [],
   // `ctx.cfg` 是活的配置段，规则与目录每次构建前缀时现读
-  create: (ctx) => new MemoryLedgerWorld({ cfg: ctx.cfg, botDir: ctx.botDir, timezone: ctx.timezone }),
+  create: (ctx) => new MemoryLedgerWorld({ cfg: ctx.cfg, botDir: ctx.botDir, timezone: ctx.timezone, dataDir: ctx.dataDir }),
   describe: {
     tools: describeTools(LEDGER_TOOL_DECLS, {
       ml_check: {

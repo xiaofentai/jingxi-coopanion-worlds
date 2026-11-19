@@ -50,7 +50,7 @@ test('月块的条目上限照样报：不查首行不等于不管', () => {
 test('分区抽查：三段各取头尾，共 6 条，不重复', () => {
   const rows = Array.from({ length: 30 }, (_, i) => `- **10-${String(i + 1).padStart(2, '0')}**：第 ${i + 1} 件事。`);
   const dir = folder({ '大事记.md': `# 大事记\n\n## 2026-10\n${rows.join('\n')}\n` });
-  const report = audit(dir, '大事记.md|full||80', '2026-11-13', 2026, '');
+  const report = audit(dir, '大事记.md|catalog|3650|80', '2026-11-13', 2026, '');
   const lines = report.samples[0].lines;
   assert.equal(lines.length, 6);
   assert.equal(new Set(lines).size, 6);

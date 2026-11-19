@@ -41,7 +41,7 @@ test('覆盖连续时没有缺口', () => {
     '近期.md': '## 11-08\\n- c\\n'.replaceAll('\\n', '\n'),
   };
   withFolder(files, (folder) => {
-    const result = board(folder, '超近期.md|whole||4000; 近期.md|whole||4000', '2026-11-10');
+    const result = board(folder, '超近期.md|catalog|4|; 近期.md|catalog|21|', '2026-11-10');
     assert.deepEqual(result.cover.missing, []);
     assert.deepEqual(result.cover.duplicates, []);
     assert.match(result.card, /记忆覆盖 11-08 ~ 11-10，没有缺口/);
@@ -54,7 +54,7 @@ test('缺的那天会被点名', () => {
     '近期.md': '## 11-08\n- c\n'.replaceAll('\\n', '\n'),
   };
   withFolder(files, (folder) => {
-    const result = board(folder, '超近期.md|whole||4000; 近期.md|whole||4000', '2026-11-10');
+    const result = board(folder, '超近期.md|catalog|4|; 近期.md|catalog|21|', '2026-11-10');
     assert.deepEqual(result.cover.missing, ['2026-11-09']);
     assert.match(result.card, /缺 11-09/);
     assert.match(result.meta, /缺 1 天/);
@@ -67,7 +67,7 @@ test('同一天出现在两份文件里会被点名（11-09 被劈开那种）',
     '近期.md': '## 11-08\n- c\n\n## 11-09\n- 早上 10:04\n'.replaceAll('\\n', '\n'),
   };
   withFolder(files, (folder) => {
-    const result = board(folder, '超近期.md|whole||4000; 近期.md|whole||4000', '2026-11-10');
+    const result = board(folder, '超近期.md|catalog|4|; 近期.md|catalog|21|', '2026-11-10');
     assert.equal(result.cover.duplicates.length, 1);
     assert.equal(result.cover.duplicates[0].date, '2026-11-09');
     assert.deepEqual(result.cover.duplicates[0].files, ['超近期.md', '近期.md']);
@@ -92,77 +92,32 @@ test('跨年：元旦出卡，上个月的天还是去年的，覆盖不会爆�
 test('文件停在昨天也算缺口', () => {
   const files = { '超近期.md': '## 11-08\n- a\n'.replaceAll('\\n', '\n') };
   withFolder(files, (folder) => {
-    const result = board(folder, '超近期.md|whole||4000', '2026-11-10');
+    const result = board(folder, '超近期.md|catalog|4|', '2026-11-10');
     assert.deepEqual(result.cover.missing, ['2026-11-09', '2026-11-10']);
   });
 });
 
-test('whole 不截断：超过第四段给的数字，照样整份上卡，只提一句', () => {
-  const body = `## 11-08\n- ${'甲'.repeat(60)}\n\n## 11-09\n- ${'乙'.repeat(150)}\n`;
+test('ledger 只出目录：整份长正文不进卡，卡也不列整份模式', () => {
+  const body = `## 11-08\n- ${'甲'.repeat(200)}\n\n## 11-09\n- 乙\n`;
   withFolder({ 'a.md': body }, (folder) => {
-    const result = board(folder, 'a.md|whole||80', '2026-11-09');
-    // 甲乙都在
-    assert.match(result.card, /甲{60}/);
-    assert.match(result.card, /乙{150}/);
-    // 提醒线触发，但话里明说不截断
-    assert.match(result.card, /超过提醒线 80/);
-    assert.match(result.card, /不截断/);
-    assert.match(result.meta, /1 份偏长/);
-    assert.doesNotMatch(result.card, /已截断/);
-  });
-});
-
-test('whole 第四段留空 = 不提醒、不截断', () => {
-  const body = `## 11-08\n- ${'甲'.repeat(200)}\n`;
-  withFolder({ 'a.md': body }, (folder) => {
-    const result = board(folder, 'a.md|whole||', '2026-11-09');
-    assert.match(result.card, /甲{200}/);
-    assert.doesNotMatch(result.card, /提醒线/);
-    assert.doesNotMatch(result.meta, /偏长/);
-  });
-});
-
-test('marker 也不截断：标记之前那一段整段上卡', () => {
-  const body = `## 名字\n- ${'甲'.repeat(200)}\n\n## 按需\n- 不该进来\n`;
-  withFolder({ 'a.md': body }, (folder) => {
-    const result = board(folder, 'a.md|marker|## 按需|50', '2026-11-09');
-    assert.match(result.card, /甲{200}/);
-    assert.doesNotMatch(result.card, /不该进来/);
-    assert.match(result.card, /超过提醒线 50/);
-  });
-});
-
-test('marker 取到某个标题之前', () => {
-  const body = '## 名字\n- 鲸汐\n\n## 按需\n- 环境路径\n';
-  withFolder({ 'a.md': body }, (folder) => {
-    const result = board(folder, 'a.md|marker|## 按需|4000', '2026-11-09');
-    assert.match(result.card, /鲸汐/);
-    assert.doesNotMatch(result.card, /环境路径/);
-  });
-});
-
-test('newest 只取最新两块，其余进未上卡清单', () => {
-  const body = '## 11-02\n- 旧\n\n## 11-08\n- 中\n\n## 11-10\n- 新\n';
-  withFolder({ 'a.md': body }, (folder) => {
-    const result = board(folder, 'a.md|newest|2|4000', '2026-11-10');
-    assert.match(result.card, /新/);
-    assert.match(result.card, /中/);
-    assert.doesNotMatch(result.card, /旧/);
-    assert.match(result.card, /未上卡的块/);
-    assert.match(result.card, /- a\.md：11-02 \d+ 字/);
+    const result = board(folder, 'a.md|catalog||', '2026-11-09');
+    assert.doesNotMatch(result.card, /甲{200}/);
+    assert.match(result.card, /11-08 甲{50}…/);
+    assert.match(result.card, /11-09 乙/);
+    assert.doesNotMatch(result.card, /未上卡的块/);
   });
 });
 
 test('规则写错只跳过那一行，不抛异常', () => {
   withFolder({ 'a.md': '## 11-10\n- a\n'.replaceAll('\\n', '\n') }, (folder) => {
-    const result = board(folder, 'a.md|whole||600x; a.md|whole||2000', '2026-11-10');
+    const result = board(folder, 'a.md|catalog||600x; a.md|catalog||', '2026-11-10');
     assert.match(result.card, /规则写错了/);
     assert.equal(result.loaded.length, 1);
   });
 });
 
 test('目录读不到时给说明，不抛异常', () => {
-  const result = board(join(tmpdir(), 'no-such-folder-xyz'), 'a.md|whole||100', '2026-11-10');
+  const result = board(join(tmpdir(), 'no-such-folder-xyz'), 'a.md|catalog|4|', '2026-11-10');
   assert.match(result.card, /目录读不到/);
 });
 
@@ -244,23 +199,12 @@ test('覆盖把归档算进来：中间某天搬走了，不算缺口', () => {
   });
 });
 
-test('full 整份上卡，一个字不截断', () => {
-  const body = `## 2026-11\n- ${'长'.repeat(3000)}\n`;
-  withFolder({ '大事记.md': body }, (folder) => {
-    const result = board(folder, '大事记.md|full||120', '2026-11-06');
-    assert.ok(result.card.includes('长'.repeat(3000)), '全文都在');
-    assert.doesNotMatch(result.card, /已截断/);
-  });
-});
-
-test('full 的第四段是条目数：到 80% 报账，但内容全在', () => {
+test('catalog 的第四段是条目数：到 80% 报账，目录仍只一行', () => {
   const body = ['## 2026-11', '- 甲', '- 乙', '- 丙', '- 丁', ''].join('\n');
   withFolder({ '大事记.md': body }, (folder) => {
-    const result = board(folder, '大事记.md|full||5', '2026-11-06');
-    // 四条全在卡上
-    for (const line of ['- 甲', '- 乙', '- 丙', '- 丁']) assert.ok(result.card.includes(line), line);
+    const result = board(folder, '大事记.md|catalog|3650|5', '2026-11-06');
+    assert.match(result.card, /2026-11（4 件）/);
     assert.match(result.card, /已到 4\/5 条（80%）/);
-    // 满额不报（还没到 100%），但 80% 已经报了，所以这里只验 80%
     assert.match(result.meta, /该整理 1 处/);
   });
 });
@@ -286,18 +230,6 @@ test('catalog 让某一天写很长，也只占一行，不挤掉别天', () => 
     assert.equal(a.loaded[0].blocks, 3);
     assert.equal(b.loaded[0].blocks, 3);
     assert.ok(Math.abs(a.loaded[0].kept - b.loaded[0].kept) < 100, `${a.loaded[0].kept} vs ${b.loaded[0].kept}`);
-  });
-});
-
-test('同一份规则，卡和体检的口径一致：full 的第 3 段不是天数窗口', () => {
-  withFolder({ 'a.md': '## 11-01\n- x\n' }, (folder) => {
-    // `full` 的第 3 段按约定是空的。就算填了数字，也不该被当成「保留几天」——
-    // 以前出卡会这么读、体检不会，于是同一份规则两边说得不一样。
-    const rules = 'a.md|full|30|80';
-    const result = board(folder, rules, '2026-11-10');
-    assert.doesNotMatch(result.card, /已第 \d+ 天/);
-    const report = audit(folder, rules, '2026-11-10');
-    assert.ok(!report.tidy.some((item) => item.reason.includes('已第')));
   });
 });
 

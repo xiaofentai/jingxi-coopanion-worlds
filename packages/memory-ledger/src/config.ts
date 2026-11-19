@@ -73,7 +73,10 @@ export interface MemoryLedgerConfigSection extends WorldSection {
    * 所以新出一款游戏不用改插件。
    */
   gameRoute: boolean;
-  /** 一条规则，`路径|模式|参数|字数上限|方向`。设置页是单行输入，所以一条一行。 */
+  /**
+   * 旧配置里的规则槽，仅供首次迁移到 `memory-ledger-settings.json` 时读取。
+   * 新配置页不再显示它们；同一个文件不能在两个地方各有一套判据。
+   */
   rule1: string;
   rule2: string;
   rule3: string;
@@ -81,10 +84,10 @@ export interface MemoryLedgerConfigSection extends WorldSection {
   rule5: string;
   /** 超出五个槽的规则，分号分隔，格式同上。 */
   extraRules: string;
-  /** 没进规则的 `.md` 只列路径和首行。 */
+  /** 其余文件不进 ledger 的索引；整份文件由 memory-card 负责。 */
   listOthers: boolean;
   listMax: number;
-  /** 跳过的目录名或文件名，逗号分隔。 */
+  /** 跳过的目录名或文件名，逗号分隔；包含交给 card 的那三份。 */
   exclude: string;
 }
 
@@ -104,9 +107,9 @@ export const MEMORY_LEDGER_DEFAULTS: MemoryLedgerConfigSection = {
   rule4: '',
   rule5: '',
   extraRules: '',
-  listOthers: true,
+  listOthers: false,
   listMax: 12,
-  exclude: '.git,node_modules,archive,handoffs,blobs,petdiary,PARTNER.md,CONSTITUTION.md',
+  exclude: '.git,node_modules,archive,handoffs,blobs,petdiary,PARTNER.md,CONSTITUTION.md,常驻.md,记忆.md,partner',
 };
 
 /** 槽与追加行按顺序拼成 `board.ts` 认的一行一份格式。 */
@@ -125,12 +128,6 @@ export function rulesText(cfg: MemoryLedgerConfigSection): string {
 export function memoryLedgerConfigGroup(language: Language = 'zh'): ConfigGroup {
   const c = memoryLedgerText(language).config;
   const K = `worlds.${MEMORY_LEDGER_ID}`;
-  const rule = (n: number) => ({
-    type: 'string',
-    title: c.rule.title(n),
-    description: n === 1 ? c.rule.description : c.rule.more,
-    'x-hot': true,
-  });
   return {
     id: `world:${MEMORY_LEDGER_ID}`,
     owner: `world:${MEMORY_LEDGER_ID}`,
@@ -191,37 +188,6 @@ export function memoryLedgerConfigGroup(language: Language = 'zh'): ConfigGroup 
           type: 'boolean',
           title: c.gameRoute.title,
           description: c.gameRoute.description,
-          'x-hot': true,
-        },
-        [`${K}.rule1`]: rule(1),
-        [`${K}.rule2`]: rule(2),
-        [`${K}.rule3`]: rule(3),
-        [`${K}.rule4`]: rule(4),
-        [`${K}.rule5`]: rule(5),
-        [`${K}.extraRules`]: {
-          type: 'string',
-          title: c.extraRules.title,
-          description: c.extraRules.description,
-          'x-hot': true,
-        },
-        [`${K}.listOthers`]: {
-          type: 'boolean',
-          title: c.listOthers.title,
-          description: c.listOthers.description,
-          'x-hot': true,
-        },
-        [`${K}.listMax`]: {
-          type: 'integer',
-          title: c.listMax.title,
-          description: c.listMax.description,
-          minimum: 0,
-          maximum: 100,
-          'x-hot': true,
-        },
-        [`${K}.exclude`]: {
-          type: 'string',
-          title: c.exclude.title,
-          description: c.exclude.description,
           'x-hot': true,
         },
       },
