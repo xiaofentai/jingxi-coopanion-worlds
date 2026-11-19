@@ -7,5 +7,5 @@ export { MEMORY_CARD_DEFAULTS, MEMORY_CARD_ID, RULE_SLOTS, memoryCardConfigGroup
 export type { MemoryCardConfigSection } from './config.ts';
 export { MemoryCardWorld } from './world.ts';
 export type { MemoryCardWorldOptions } from './world.ts';
-export { buildCard, parseRules } from './card.ts';
+export { buildCard, parseRules, splitBlocks } from './card.ts';
 export type { CardInput, CardResult, LoadedFile, Rule, RuleMode } from './card.ts';
