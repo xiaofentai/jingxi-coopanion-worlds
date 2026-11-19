@@ -27,6 +27,12 @@ pnpm typecheck
 
 需要 Node 22 以上。`src/` 里就是运行时真正加载的源码，没有构建步骤。
 
+### 改界面（`webui.js` / `webui.css`）之后
+
+开发时用 `link:` 把包指到仓库里，改完代码**要把该包 `package.json` 的 `version` 加一，再重启宿主**，否则改动看不见。
+
+面板产物的地址是 `/assets/extensions/<包>/<版本>/webui.js|webui.css`，版本段对扩展包来说只有包版本号；宿主按 `max-age=31536000, immutable` 发这两份文件，版本不变 URL 就不变，浏览器会一直用第一次拿到的旧副本——改了样式却「没生效」，多半是这一条。宿主自带的 World 走 `core/bundled-panels.ts`，版本后面还拼一段内容 hash；`link:` 装进来的扩展没有，只能靠改版本号。
+
 ## 许可
 
 AGPL-3.0-or-later，见 [LICENSE](LICENSE)。每个包目录下也各有一份，随 npm 包一起发布。

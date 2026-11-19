@@ -106,6 +106,10 @@ const settingsPanel = {
         });
         writers.set(field.key, (value) => {
           const text = value === undefined || value === null ? '' : String(value);
+          // 正在这个框里打字就别回写：轮询拿回来的是上一次保存的值，一写就把刚敲的字和
+          // 光标一起抹掉（文本框尤其明显，改到一半手一停就被重置）。失焦时 change 会存盘，
+          // 那之后的轮询再对齐。
+          if (input.ownerDocument && input.ownerDocument.activeElement === input) return;
           if (input.value !== text) input.value = text;
         });
       }

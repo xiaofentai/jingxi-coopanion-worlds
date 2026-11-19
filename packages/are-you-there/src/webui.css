@@ -1,15 +1,18 @@
 /**
- * 「在吗」的「设置」页签。
+ * 「细节设置」页签的样式。只写 `.ayt-settings` 这一层，不碰控制台的全局规则。
  *
- * 只写这个根节点下面的东西，不碰全局样式。两处调整：
+ * 卡、行、控件全都用控制台自己那套（`details.sheet.fold` / `companion-row` / `configline`），
+ * 这里只补四件事：内边距不要叠成两份、第一张卡被宿主抹掉的上边框与顶边距、长标签别压到
+ * 输入框上、行高收一点让三张卡能一屏放下。
  *
- * 1. 折叠卡的 `summary` 是 `align-items: baseline`、上内边距 13px，标题会被顶到卡片最上沿，
- *    比控制台自己的卡片看着「高」一截。这里给到 17px 并改成按中线对齐。
- * 2. 说明行（`.sh-desc`）紧贴标题，和下面第一行之间的空隙又太大；把两头都收一点。
+ * 一、卡片本身已经带 `padding:16px 18px`，`summary` 和 `.foldbody` 再加一圈就是双份，
+ *     标题会被顶到离边框三十多像素的地方。所以两边都归零，左右也别加——加了标题就和
+ *     下面的字段错开。
  */
+
 .ayt-settings details.sheet.fold > summary {
   align-items: center;
-  padding: 17px 20px 7px;
+  padding: 0 0 4px;
 }
 
 .ayt-settings details.sheet.fold > summary h3 {
@@ -18,9 +21,69 @@
 }
 
 .ayt-settings details.sheet.fold > .foldbody {
-  padding: 0 20px 15px;
+  padding: 0;
 }
 
 .ayt-settings details.sheet.fold > .foldbody > .sh-desc {
   margin: 0 0 12px;
+}
+
+/* 二、控制台把「面板里的第一张卡」当成页面开头的无缝起始：`border-top:0` 加 `padding-top:0`，
+   假定外面已经留了间距。可那段 24px 加在我们这层 `.ayt-settings` 上，没进卡片，于是只有
+   第一张（锁屏检测）标题贴着顶边、上边框还缺一条。单独补回来，别动另外两张。
+
+   内边距只能写在 `summary` 上：宿主那条 `padding-top:0` 的选择器里 `:is(...)` 取的是最具体的
+   参数（`.read-feedback:empty:first-child+*`），算下来是 (0,6,0)，写在卡片这一层改不动；
+   只有边框那条是 (0,4,0)，下面这行压得住。 */
+
+.ayt-settings > details.sheet.fold:first-child {
+  border-top: 1px solid var(--border);
+}
+
+.ayt-settings > details.sheet.fold:first-child > summary {
+  padding-top: 16px;
+}
+
+/* 三、标签列是写死的 120px，标签撑出最小宽度会盖住右边的输入框、还挡点击。
+   只留换行，不要最小宽度。 */
+
+.ayt-settings .companion-label {
+  max-width: 18em;
+  padding-right: 12px;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.ayt-settings .companion-control {
+  min-width: 0;
+}
+
+.ayt-settings .companion-switchbox {
+  min-height: 2rem;
+  align-items: center;
+}
+
+/* 四、字段行偏高：控制台一行 12px 上下内边距、40px 输入框、提示再占一到两行，
+   雷达那张卡有八项，不收紧就要滚两屏。 */
+
+.ayt-settings .companion-row {
+  padding: 8px 0;
+}
+
+.ayt-settings .companion-control > .home-note {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ayt-settings .companion-row .tfield input.field {
+  height: 34px;
+  min-height: 34px;
+  padding-block: 0;
+}
+
+/* 雷达状态那一行只有一颗药丸加一句细节，上下留白比普通字段行小一点。 */
+.ayt-settings .companion-row:has(> .companion-control > .configline > .pill) {
+  padding: 6px 0 8px;
 }
