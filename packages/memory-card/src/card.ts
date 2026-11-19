@@ -7,7 +7,12 @@
 import { closeSync, existsSync, openSync, readFileSync, readdirSync, readSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 
-/** `whole` 整份；`marker` 取到某个标题之前；`newest` 取日期最新的几块；`newest+pin` 再固定带上某几块。 */
+/**
+ * `whole` 整份；`marker` 取到某个标题之前；`newest` 取日期最新的几块；`newest+pin` 再固定带上某几块。
+ *
+ * 全部是「把文件搬进前缀」的取法。按块只出一行的那种（目录式）不在这里——
+ * 那是记忆树网的活，卡不参与。
+ */
 export type RuleMode = 'whole' | 'marker' | 'newest' | 'newest+pin';
 
 /** 超过字数上限时切哪一头：`tail` 断尾（留开头，默认）；`head` 截头（留结尾）。 */

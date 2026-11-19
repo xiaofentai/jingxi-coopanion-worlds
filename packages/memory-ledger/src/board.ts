@@ -8,7 +8,12 @@
 import { closeSync, existsSync, openSync, readFileSync, readdirSync, readSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { archivedDates } from './archive.ts';
-import { dayDates, parseDoc, shiftDate, type Doc } from './parse.ts';
+import { overSoft, overdueAge, usageOf, windowOf } from './due.ts';
+// 本文件里另有一个 `firstLine(file)`（读文件的第一行，列清单用），所以这里起个别名
+import { FIRST_LINE_MAX, dayDates, firstLine as firstLineOf, parseDoc, shiftDate, type Doc } from './parse.ts';
+
+/** 软限比例从 `due.ts` 借出去：写入侧和体检都读同一个常量。 */
+export { SOFT_RATIO } from './due.ts';
 
 /**
  * `whole` 整份（有字数上限，超了截断）；`full` 整份**不截断**，只靠条目数兜住；
@@ -78,14 +83,13 @@ export interface BoardResult {
 
 const MODES: readonly RuleMode[] = ['whole', 'full', 'marker', 'newest', 'newest+pin', 'catalog'];
 
-/** 用量到上限的这个比例就提醒（软限）：不拦写入，只进「该整理的」。 */
-export const SOFT_RATIO = 0.8;
-
 /** 第四段按「字数」解释的模式；`catalog` / `full` 的第四段是条目数。 */
 const BY_CHARS: readonly RuleMode[] = ['whole', 'marker', 'newest', 'newest+pin'];
 
-/** `catalog` 每行留多少字：够写一句「这一天」，又不至于吃掉下一天。 */
-const CATALOG_LINE = 40;
+/*
+ * 目录一行留多少字：就是 `FIRST_LINE_MAX`（`parse.ts`）。
+ * 不能比首行上限短——不然提示词让人写 50 字，目录却截在 40，等于让人写一句放不下的。
+ */
 /**
  * 兜底：目录超过这么多行就只显示最近的，并明说。
  * 正常是「窗口天数 + 月份数」约 31 行，200 天不整理也才 200 行——这条只在事故里触发。
@@ -214,7 +218,7 @@ interface Read {
   mtime: string;
 }
 
-function readOne(file: string, rel: string): Read | null {
+function readOne(file: string, rel: string, today: string): Read | null {
   try {
     const stat = statSync(file);
     if (!stat.isFile()) return null;
@@ -222,7 +226,7 @@ function readOne(file: string, rel: string): Read | null {
     if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
     const two = (n: number) => String(n).padStart(2, '0');
     const mtime = `${two(stat.mtime.getMonth() + 1)}-${two(stat.mtime.getDate())} ${two(stat.mtime.getHours())}:${two(stat.mtime.getMinutes())}`;
-    return { doc: parseDoc(text, rel, stat.mtime.getFullYear()), mtime };
+    return { doc: parseDoc(text, rel, Number(today.slice(0, 4)), today), mtime };
   } catch {
     return null;
   }
@@ -303,18 +307,24 @@ interface Picked {
   omitted?: Array<{ title: string; chars: number }>;
 }
 
-/** 目录的一行：短日期 + 那天的首行（超长就截断）。 */
+/**
+ * 目录的一行。
+ *
+ * 日块：`11-08 这一天的一句话`——首行本来就是为索引写的。
+ * 特殊块：`还挂着 手上几件挂着的…`——它也有自己的首行。
+ * **月块：`2026-11（26 件）`，不带首行。** 它没有「这个月的一句话」这个位置，
+ * 取首行只会拿到最旧的那一条，既占字数又不代表这个月；件数才是它该给的量感。
+ */
 function catalogRows(doc: Doc): Array<{ block: Block; line: string; chars: number }> {
   return doc.blocks.map((block) => {
     // 目录行的前缀尽量短：日块 `11-08`、月块 `2026-10`、特殊块用原名
     const handle = block.kind === 'special'
       ? block.title
       : block.kind === 'day' ? (block.date ?? block.title).slice(5) : (block.date ?? block.title);
-    const first = block.body.split('\n').map((line) => line.trim()).find(Boolean) ?? '';
-    const flat = first.replace(/^[-*]\s+/, '').replace(/\s+/g, ' ').trim();
-    const clipped = flat.length > CATALOG_LINE ? `${flat.slice(0, CATALOG_LINE)}…` : flat;
-    // 月块只占一行，藏着的那些条目得有个量感——不然「11 月」看着像只有一件事
-    const count = block.kind === 'month' ? `（${block.entries.length} 件）` : '';
+    const month = block.kind === 'month';
+    const flat = month ? '' : firstLineOf(block).replace(/\s+/g, ' ');
+    const clipped = flat.length > FIRST_LINE_MAX ? `${flat.slice(0, FIRST_LINE_MAX)}…` : flat;
+    const count = month ? `（${block.entries.length} 件）` : '';
     return { block, line: clipped ? `${handle} ${clipped}${count}` : `${handle}${count}`, chars: block.heading.length + 1 + block.body.length };
   });
 }
@@ -339,31 +349,25 @@ function catalogOf(doc: Doc): Picked {
   };
 }
 
-/** 两个 `YYYY-MM-DD` 相差几天（`to` 减 `from`）。 */
-function daysBetween(from: string, to: string): number {
-  const at = Date.UTC(...(from.split('-').map(Number) as [number, number, number]));
-  const bt = Date.UTC(...(to.split('-').map(Number) as [number, number, number]));
-  return Math.round((bt - at) / 86_400_000);
-}
-
 /**
- * 该整理什么：目录窗口外的天、超额的条目。
+ * 该整理什么：窗口外的天、超额的条目。
  *
  * 只算账，不动卡——报出来比从卡上抹掉有效（抹掉就变成「她不知道自己不知道」）。
+ * 「算不算到期」由 `due.ts` 定义，这里只负责措辞。
  */
-function dueOf(rule: Rule, doc: Doc, today: string, entries: number): string[] {
+function dueOf(rule: Rule, doc: Doc, today: string): string[] {
   const out: string[] = [];
-  const window = Number.parseInt(rule.arg.trim(), 10);
-  if (Number.isFinite(window) && window > 0) {
-    for (const block of doc.blocks) {
-      if (block.kind !== 'day' || !block.date) continue;
-      const age = daysBetween(block.date, today);
-      if (age >= window) out.push(`${handleOfBlock(block)} 已第 ${age + 1} 天（窗口 ${window} 天），${block.heading.length + 1 + block.body.length} 字`);
-    }
+  const window = windowOf(rule);
+  for (const block of doc.blocks) {
+    const day = overdueAge(block, window, today);
+    if (day === null) continue;
+    out.push(
+      `${handleOfBlock(block)} 已第 ${day} 天（窗口 ${window} 天），${block.heading.length + 1 + block.body.length} 字`,
+    );
   }
-  // 条目数到上限的 80% 就报账（软限）：不裁剪，只提醒该压一压
-  if (rule.maxChars > 0 && entries >= rule.maxChars * SOFT_RATIO) {
-    out.push(`已到 ${entries}/${rule.maxChars} 条（${Math.round((entries / rule.maxChars) * 100)}%）：该压一压或替换掉一些`);
+  const usage = usageOf(rule, doc);
+  if (usage && overSoft(usage)) {
+    out.push(`已到 ${usage.value}/${usage.cap} ${usage.unit}（${Math.round((usage.value / usage.cap) * 100)}%）：该压一压或替换掉一些`);
   }
   return out;
 }
@@ -529,9 +533,11 @@ function resolveFolder(folder: string): string | null {
 
 function resolveIn(folder: string, rel: string): string | null {
   if (!rel || isAbsolute(rel)) return null;
-  const full = resolve(folder, rel);
-  const prefix = folder.endsWith(sep) ? folder : `${folder}${sep}`;
-  return full === folder || full.startsWith(prefix) ? full : null;
+  // 两边都 resolve 再比：配置里可能写 `C:/a/b`，而 resolve 给出 `C:\a\b\...`，
+  // 拿原字符串拼前缀会永远不比上——结果是整张板静默空着。
+  const base = resolve(folder);
+  const full = resolve(base, rel);
+  return full.startsWith(`${base}${sep}`) ? full : null;
 }
 
 export function buildBoard(input: BoardInput): BoardResult {
@@ -558,7 +564,7 @@ export function buildBoard(input: BoardInput): BoardResult {
         notes.push(t.badRule(rule.path));
         continue;
       }
-      const read = readOne(file, rule.path);
+      const read = readOne(file, rule.path, input.today);
       if (!read) {
         missing.push(rule.path);
         notes.push(t.missing(rule.path));
@@ -585,8 +591,7 @@ export function buildBoard(input: BoardInput): BoardResult {
       for (const block of picked.omitted ?? []) omitted.push({ file: rule.path, ...block });
       // 目录与 full 只算账、不剪卡：窗口外的天与到 80% 的条目进「该整理的」
       if (rule.mode === 'catalog' || rule.mode === 'full') {
-        const entries = read.doc.blocks.reduce((n, block) => n + block.entries.length, 0);
-        for (const text of dueOf(rule, read.doc, input.today, entries)) due.push({ file: rule.path, text });
+        for (const text of dueOf(rule, read.doc, input.today)) due.push({ file: rule.path, text });
       }
       loaded.push({ path: rule.path, mode: rule.mode, kept: picked.text.length, source: read.doc.text.length, blocks: picked.blocks });
     }

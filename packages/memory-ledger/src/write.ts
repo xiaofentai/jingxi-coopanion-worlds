@@ -6,7 +6,7 @@
  *
  * 纯函数：进来一段文本，出去一段文本。读盘、原子写、备份在 `tools.ts` 里。
  */
-import { parseDoc, type Block, type Doc } from './parse.ts';
+import { bodyStartOf, parseDoc, resolveShortYear, type Block, type Doc } from './parse.ts';
 
 /** 块的句柄：日块与月块用日期，特殊块用标题。 */
 export function handleOf(block: Block): string {
@@ -43,16 +43,17 @@ export function findBlocks(doc: Doc, handle: string): Block[] {
   });
 }
 
-/** 块在文件里占的行：`[start, end)`，0 起。含标题行。 */
+/** 块在文件里占的行：`[start, end)`，0 起。有标题时含标题行；清单块只有正文。 */
 function spanOf(block: Block): [number, number] {
   const bodyLines = block.body.split('\n').length;
   const start = block.startLine - 1;
-  return [start, start + 1 + bodyLines];
+  // 有标题就多占一行；清单块没有标题，正文就是它自己
+  return [start, start + bodyLines + (block.heading ? 1 : 0)];
 }
 
-/** 块的原样文本，含标题行与块尾空行。 */
+/** 块的原样文本，含标题行与块尾空行。清单块没有标题，只有正文。 */
 export function blockText(block: Block): string {
-  return `${block.heading}\n${block.body}`;
+  return block.heading ? `${block.heading}\n${block.body}` : block.body;
 }
 
 /** 文件头那段原文：第一个 `##` 之前；一个块都没有时是全文。 */
@@ -123,7 +124,12 @@ function insertAt(doc: Doc, key: number): number {
 
 /** 把一段块文本插进文件；同日期已在文件里则拒绝。 */
 export function withBlock(doc: Doc, raw: string, key: number): { text: string } | { error: string } {
-  const incoming = parseDoc(raw, doc.path, Number(doc.blocks[0]?.date?.slice(0, 4) ?? new Date().getFullYear()));
+  // 搬过来的块是哪一年，`key` 已经写着了（日块 20261109 / 月块 20261100），别再拿目标文件
+  // 第一块的年份去猜——跨年那几天猜出来的年份会把「目标里已有同一天」这条护栏绕过去。
+  const year = key >= 10_000_000
+    ? Math.floor(key / 10000)
+    : Number(doc.blocks[0]?.date?.slice(0, 4) ?? new Date().getFullYear());
+  const incoming = parseDoc(raw, doc.path, year);
   const head = incoming.blocks[0];
   if (!head) return { error: '要插入的内容里没有 ## 标题' };
   const exists = findBlocks(doc, handleOf(head));
@@ -214,17 +220,41 @@ export function appendRawLines(doc: Doc, handle: string, raw: readonly string[])
   return { text: spliceInBlock(doc, block, chunk, false) };
 }
 
-/** `11-11` 补成 `2026-11-11`；已经是全日期就原样返回。 */
-export function fullDate(date: string, year: number): string {
+/**
+ * `11-11` 补成 `2026-11-11`；已经是全日期就原样返回。
+ *
+ * 给了 `today` 就按「不晚于今天的最近一年」补：元旦那天写 `12-31` 补成刚刚过去的那个月，
+ * 而不是十一个月以后——否则会新建出一块未来日期的块。
+ */
+export function fullDate(date: string, year: number, today?: string): string {
   const trimmed = date.trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
   const short = /^(\d{2})-(\d{2})$/.exec(trimmed);
-  return short ? `${year}-${short[1]}-${short[2]}` : trimmed;
+  if (!short) return trimmed;
+  const at = resolveShortYear(short[1], short[2], year, today);
+  return `${at}-${short[1]}-${short[2]}`;
+}
+
+/**
+ * 开一块**标题随便是啥**的块（追加到文件末尾）。
+ *
+ * 为什么需要：`ensureDayBlock` / `ensureMonthBlock` 只认日期形状，而 `games/*` 的块是
+ * 身份名（`## 当守卫`）。她第一次打一个新身份时，那块还不存在——没有这个，她连写的
+ * 地方都没有（`ml_add` 会回「没找到」）。
+ *
+ * **只在不在规则里的文件上用它**：规则文件里的块必须能算出日期，否则覆盖、到期就全乱。
+ */
+export function ensureBlock(doc: Doc, title: string): { text: string; created: boolean } {
+  const cleaned = title.trim().replace(/^#+\s*/, '');
+  if (!cleaned) return { text: doc.text, created: false };
+  if (findBlocks(doc, cleaned).length) return { text: doc.text, created: false };
+  const body = doc.text.replace(/\s+$/, '');
+  return { text: `${body}\n\n## ${cleaned}\n`, created: true };
 }
 
 /** 某天还没有块就建一个，标题带星期。`date` 可以是 `11-11`，`year` 补年份。 */
-export function ensureDayBlock(doc: Doc, date: string, year: number): { text: string; created: boolean } {
-  const full = fullDate(date, year);
+export function ensureDayBlock(doc: Doc, date: string, year: number, today?: string): { text: string; created: boolean } {
+  const full = fullDate(date, year, today);
   const found = findBlocks(doc, full);
   if (found.length) return { text: doc.text, created: false };
   const [y, m, d] = full.split('-').map(Number);
@@ -269,22 +299,182 @@ export interface MoveResult {
   target: string;
   /** 搬过去的块句柄。 */
   handle: string;
-  /** 这一块的字数。 */
+  /** 搬过去之后这一块的字数。 */
   chars: number;
+  /** 搬之前这一块的字数：给了新正文时报压缩比用。 */
+  beforeChars: number;
 }
 
-/** 把整块从一份文件搬到另一份；同一天在目标里已有则拒绝——这正是 11-09 那种错的来源。 */
-export function moveBlock(source: Doc, handle: string, target: Doc): MoveResult | { error: string } {
+/**
+ * 把整块从一份文件搬到另一份；同一天在目标里已有则拒绝——这正是 11-09 那种错的来源。
+ *
+ * `body` 给了就用它换掉块内正文（标题不动）：压进下一层时用，压是她的判断，
+ * 工具只负责「换正文 + 按日期插好 + 从源里删」，一处失败就整件事不做。
+ */
+export function moveBlock(source: Doc, handle: string, target: Doc, body?: string): MoveResult | { error: string } {
   const found = findBlocks(source, handle);
   if (found.length !== 1) {
     return { error: found.length ? `「${handle}」匹配到 ${found.length} 块` : `${source.path} 里没找到「${handle}」` };
   }
   const block = found[0];
   if (block.kind === 'special') return { error: `「${handle}」是特殊块，不搬` };
-  const raw = blockText(block);
+  const original = blockText(block);
+  const text = body === undefined ? block.body : `${body.trim()}\n`;
+  // 空正文会让整块变成空壳：不是压缩，是丢
+  if (!text.trim()) return { error: '新的正文是空的，没有搬' };
+  const raw = `${block.heading}\n${text}`;
   const inserted = withBlock(target, raw, block.key);
   if ('error' in inserted) return inserted;
-  return { source: withoutBlock(source, block), target: inserted.text, handle, chars: raw.length };
+  return {
+    source: withoutBlock(source, block),
+    target: inserted.text,
+    handle,
+    chars: raw.length,
+    beforeChars: original.length,
+  };
+}
+
+export interface RewriteResult {
+  text: string;
+  beforeChars: number;
+  afterChars: number;
+}
+
+/**
+ * 整块正文换掉，标题不动。
+ *
+ * 和 `ml_add` 的区别：那个加一条，这个**重写整块**。压 `games/*` 时需要它——
+ * 七局同身份的教训里有大量重复，逐条删压不下去，得归并成十来条重写一遍。
+ * 和 `ml_move` 的区别：那个会把块搬去另一份文件，这个原地不动。
+ */
+export function rewriteBlock(doc: Doc, handle: string, body: string): RewriteResult | Miss {
+  const block = oneBlock(doc, handle);
+  if ('error' in block) return block;
+  if (!body.trim()) {
+    return { error: '新的正文是空的：那会把整块清空。真要清掉用 ml_block(action="delete")', hint: sampleHint(block) };
+  }
+  const lines = doc.text.split('\n');
+  const [start, end] = spanOf(block);
+  const merged = [...lines.slice(0, start + 1), body.trim(), '', ...lines.slice(end)];
+  return { text: tidy(merged.join('\n')), beforeChars: block.body.length, afterChars: body.trim().length };
+}
+
+export interface DropResult {
+  text: string;
+  handle: string;
+  /** 删掉的字数与条数，回执里报给她。 */
+  chars: number;
+  entries: number;
+}
+
+/**
+ * 整块删掉，**什么都不留**。
+ *
+ * 和 `ml_delete(…, keep=true)` 的分工：那个删一条、还往归档里留一份；这个删一整块、什么都不留，
+ * 只有 `save()` 的备份能捞回来。压缩完、确认旧块没用了，才用它。
+ */
+export function dropBlock(doc: Doc, handle: string): DropResult | { error: string } {
+  const found = findBlocks(doc, handle);
+  if (found.length !== 1) {
+    return {
+      error: found.length
+        ? `「${handle}」匹配到 ${found.length} 块，写清楚一点`
+        : `${doc.path} 里没找到「${handle}」`,
+    };
+  }
+  const block = found[0];
+  if (block.kind === 'special') return { error: `「${handle}」是特殊块，要删其中几条请用 ml_delete` };
+  return {
+    text: withoutBlock(doc, block),
+    handle,
+    chars: block.body.length,
+    entries: block.entries.length,
+  };
+}
+
+export interface MergeResult {
+  text: string;
+  /** 被合并掉的块标题，按文件里的先后顺序。 */
+  titles: string[];
+  /** 合并后的标题行，含 `## `。 */
+  heading: string;
+  /** 合并后这一块的字数。 */
+  chars: number;
+}
+
+/**
+ * 把同一份文件里的几块并成一块：按文件里的先后顺序拼正文，标题换成 `into`，其余块删掉。
+ *
+ * 为什么不让调用方自己拼：拼的时候要照抄原文，抄漏一个字符就白改——这正是 `ml_edit`
+ * 那条规矩的来由。这里只做机械部分，条目一条不动（条目数由调用方核对），
+ * 「同类型的教训留一条」是她的判断，不是工具的。
+ *
+ * 日期护栏：合并会改掉块的日期归属，而前缀里的文件靠日期算覆盖。所以默认只许
+ * 「合并后仍然解析出同一个日期」；规则外的文件（`games/*`）由调用方放开。
+ */
+export function mergeBlocks(
+  doc: Doc,
+  handles: readonly string[],
+  next: string,
+  opts: { allowDateChange?: boolean } = {},
+): MergeResult | Miss {
+  if (!next.trim()) return { error: '要说清合并后的标题（into）' };
+  if (next.includes('\n')) return { error: '标题只能一行' };
+  if (isFrontHandle(doc, next)) return { error: '文件头不是块，不能合并' };
+
+  const picked: Block[] = [];
+  for (const handle of handles) {
+    const found = findBlocks(doc, handle);
+    if (found.length === 0) return { error: `没找到「${handle}」`, hint: handlesHint(doc) };
+    if (found.length > 1) {
+      return {
+        error: `「${handle}」匹配到 ${found.length} 块，说不清是哪一块`,
+        hint: `匹配到的是：${found.map((block) => block.title).join('、')}`,
+      };
+    }
+    if (!picked.includes(found[0])) picked.push(found[0]);
+  }
+  if (picked.length < 2) return { error: '至少写两块，才谈得上合并' };
+  picked.sort((a, b) => a.startLine - b.startLine);
+
+  const heading = next.trim().replace(/^#+\s*/, '').trim();
+  if (!heading) return { error: '新标题是空的' };
+  const clash = doc.blocks.find((block) => !picked.includes(block) && block.title.trim() === heading);
+  if (clash) return { error: `已经有块叫「${heading}」了，重名以后就分不清是哪一块` };
+
+  const first = picked[0];
+  const probeYear = Number((first.date ?? doc.blocks[0]?.date ?? '').slice(0, 4)) || new Date().getFullYear();
+  const probe = parseDoc(`## ${heading}\n`, doc.path, probeYear).blocks[0];
+  const sameDate = picked.every((block) => block.date === first.date && block.kind === first.kind);
+  const keepsDate = probe !== undefined && probe.kind === first.kind && probe.date === first.date;
+  if (!opts.allowDateChange && !(sameDate && keepsDate)) {
+    return {
+      error: `合并会改掉这一块的日期（${picked.map((block) => block.title).join('、')} → ${heading}），覆盖就数不准了；这份文件在规则里，不能这么合`,
+    };
+  }
+
+  const body = picked
+    .map((block) => block.body.trim())
+    .filter(Boolean)
+    .join('\n\n');
+  const raw = body ? `## ${heading}\n${body}` : `## ${heading}`;
+
+  const lines = doc.text.split('\n');
+  const spans = picked.map(spanOf);
+  const drop = new Set<number>();
+  for (const [start, end] of spans) for (let i = start; i < end; i += 1) drop.add(i);
+  const anchor = spans[0][0];
+  const kept: string[] = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    if (i === anchor) kept.push(...raw.split('\n'));
+    if (!drop.has(i)) kept.push(lines[i]);
+  }
+  return {
+    text: tidy(kept.join('\n')),
+    titles: picked.map((block) => block.title),
+    heading: `## ${heading}`,
+    chars: raw.length,
+  };
 }
 
 /** `needle` 在 `hay` 里出现几次。 */
@@ -394,9 +584,12 @@ export function deleteInBlock(doc: Doc, handle: string, match: string): { text: 
   const block = oneBlock(doc, handle);
   if ('error' in block) return block;
   if (!match.trim()) return { error: '要说清删哪一条（old）' };
-  const hits = block.entries.filter((entry) => entry.text.includes(match));
-  if (!hits.length) return { error: `「${handle}」里没有含「${match}」的条目`, hint: sampleHint(block) };
-  if (hits.length > 1) return { error: `含「${match}」的条目有 ${hits.length} 条，说不清删哪一条`, hint: sampleHint(block) };
+  // 她常常直接把文件里那一行抄过来（带 `- `），而条目正文是不带的。
+  // 两种写法都认——「抄原文反而删不掉」是最没道理的一种失败。
+  const needle = match.replace(/^\s*[-*]\s+/, '').trim();
+  const hits = block.entries.filter((entry) => entry.text.includes(needle));
+  if (!hits.length) return { error: `「${handle}」里没有含「${needle}」的条目`, hint: sampleHint(block) };
+  if (hits.length > 1) return { error: `含「${needle}」的条目有 ${hits.length} 条，说不清删哪一条`, hint: sampleHint(block) };
 
   const drop = new Set(hits[0].lines);
   const all = doc.text.split('\n');

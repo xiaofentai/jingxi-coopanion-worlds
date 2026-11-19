@@ -20,7 +20,7 @@ export function landingSpot(folder: string, rel: string): string | null {
 /**
  * 启用时把归档文件建出来，返回它的绝对路径。
  *
- * 两个原因：设置页的文件选择器只能选到已存在的文件；第一次 `ml_forget` 也不该因为
+ * 两个原因：设置页的文件选择器只能选到已存在的文件；第一次 `ml_delete(…, keep=true)` 也不该因为
  * 「目标不存在」失败。建不出来返回 null——读路径不受影响，真正的写入还会再试一次。
  */
 export function ensureArchiveFile(folder: string, rel: string): string | null {

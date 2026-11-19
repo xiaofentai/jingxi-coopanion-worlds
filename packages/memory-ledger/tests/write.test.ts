@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { parseDoc } from '../src/parse.ts';
-import { appendBullets, deleteInBlock, editInBlock, ensureDayBlock, findBlocks, handleOf, moveBlock, tidy, withoutBlock } from '../src/write.ts';
+import { appendBullets, deleteInBlock, editInBlock, ensureDayBlock, findBlocks, handleOf, mergeBlocks, moveBlock, tidy, withoutBlock } from '../src/write.ts';
 
 const CJ = [
   '# 超近期（只留最近 2 天）',
@@ -202,4 +202,70 @@ test('块名写错时，回执列出这份文件里有哪些块', () => {
   assert.ok('error' in result);
   assert.match(result.error, /没找到「头」/);
   assert.match(result.hint ?? '', /这份文件里有：2026-11-09/);
+});
+
+const GAMES = [
+  '# 狼人杀',
+  '',
+  '## 当狼那份（11-05 六人局踩出来的）',
+  '- 一。',
+  '- 二。',
+  '',
+  '## 当狼那份（11-07 六人局，赢了）',
+  '- 三。',
+  '',
+  '## 读局',
+  '- 四。',
+  '',
+].join('\n');
+
+test('合并几块：按文件顺序拼成一块，条目一条不丢', () => {
+  const doc = parseDoc(GAMES, 'games/狼人杀.md', 2026);
+  const result = mergeBlocks(
+    doc,
+    ['当狼那份（11-05 六人局踩出来的）', '当狼那份（11-07 六人局，赢了）'],
+    '当狼',
+    { allowDateChange: true },
+  );
+  assert.ok(!('error' in result), 'error' in result ? result.error : '');
+  const after = parseDoc(result.text, 'games/狼人杀.md', 2026);
+  assert.deepEqual(after.blocks.map((block) => block.title), ['当狼', '读局']);
+  // 三段条目都在，顺序照文件里那样
+  assert.deepEqual(after.blocks[0].entries.map((entry) => entry.text), ['一。', '二。', '三。']);
+  assert.match(result.text, /## 当狼\n- 一。\n- 二。\n\n- 三。/);
+});
+
+test('合并默认不许改掉日期：前缀里的文件会因此数不准覆盖', () => {
+  const doc = parseDoc(GAMES, 'games/狼人杀.md', 2026);
+  const result = mergeBlocks(doc, ['当狼那份（11-05 六人局踩出来的）', '当狼那份（11-07 六人局，赢了）'], '当狼');
+  assert.ok('error' in result);
+  assert.match(result.error, /覆盖就数不准了/);
+});
+
+test('同一天的两块合并（11-09 被劈开那种）不用放开日期也允许', () => {
+  const doc = parseDoc(
+    ['# a', '', '## 11-09（周一）', '- 早上。', '', '## 11-09（周日）', '- 晚上。', ''].join('\n'),
+    '超近期.md',
+    2026,
+  );
+  const result = mergeBlocks(doc, ['11-09（周一）', '11-09（周日）'], '11-09');
+  assert.ok(!('error' in result), 'error' in result ? result.error : '');
+  const after = parseDoc(result.text, '超近期.md', 2026);
+  assert.equal(after.blocks.length, 1);
+  assert.equal(after.blocks[0].entries.length, 2);
+  assert.equal(after.blocks[0].date, '2026-11-09');
+});
+
+test('合并时不能撞上已经存在的块名', () => {
+  const doc = parseDoc(GAMES, 'games/狼人杀.md', 2026);
+  const result = mergeBlocks(doc, ['当狼那份（11-05 六人局踩出来的）', '当狼那份（11-07 六人局，赢了）'], '读局');
+  assert.ok('error' in result);
+  assert.match(result.error, /已经有块叫「读局」/);
+});
+
+test('只写一块不算合并', () => {
+  const doc = parseDoc(GAMES, 'games/狼人杀.md', 2026);
+  const result = mergeBlocks(doc, ['读局'], '读局', { allowDateChange: true });
+  assert.ok('error' in result);
+  assert.match(result.error, /至少写两块/);
 });

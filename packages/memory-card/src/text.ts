@@ -41,11 +41,12 @@ const zh: MemoryCardText = {
     rule: {
       title: (n) => `规则 ${n}`,
       description:
-        '一条一份：路径|模式|参数|字数上限|方向。模式：whole 整份；marker 取到某标题之前（参数是标题，如 ## 按需）；'
+        '一条一份：路径|模式|参数|字数上限|方向。模式：whole 整份；'
+        + 'marker 取到某标题之前（参数是标题，如 ## 按需）；'
         + 'newest 取日期最新的几块（参数是块数）；newest+pin 再加固定块（参数写成 1,待办）。'
         + '字数上限可以留空，表示这一份不单独限制、只受总字数约束。'
         + '方向可省：tail 断尾（留开头，默认）；head 截头（按换行留结尾，日记类文件用这个，不为凑上限整块丢）。'
-        + '例：记忆.md|whole||1500、超近期.md|whole||950|head',
+        + '例：常驻.md|whole||2000、偏好与习惯.md|whole||2000',
       more: '同上。留空就跳过。',
     },
     extraRules: {
@@ -93,11 +94,12 @@ const en: MemoryCardText = {
     rule: {
       title: (n) => `Rule ${n}`,
       description:
-        'One rule per field: path|mode|argument|character limit|side. Modes: whole; marker (stops before a heading, argument is '
-        + 'the heading); newest (the newest dated blocks, argument is the count); newest+pin (also keeps a named block, argument '
-        + 'as 1,name). The character limit may be left empty: that file is then limited by the card total only. '
-        + 'The side may be left out: tail keeps the beginning (default); head keeps the end, for a diary whose newest lines '
-        + 'are at the bottom. Example: MEMORY.md|whole||1500, RECENT.md|whole||950|head',
+        'One rule per field: path|mode|argument|character limit|side. Modes: whole; '
+        + 'marker (stops before a heading, argument is the heading); '
+        + 'newest (the newest dated blocks, argument is the count); '
+        + 'newest+pin (also keeps a named block, argument as 1,name). The character limit may be left empty: that file is then '
+        + 'limited by the card total only. The side may be left out: tail keeps the beginning (default); head keeps the end, '
+        + 'for a diary whose newest lines are at the bottom. Example: 常驻.md|whole||2000, 偏好与习惯.md|whole||2000',
       more: 'Same as above. Empty fields are skipped.',
     },
     extraRules: {

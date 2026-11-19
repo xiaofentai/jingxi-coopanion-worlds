@@ -2,7 +2,7 @@
   "name": "world-memory-ledger",
   "version": "0.0.1",
   "type": "module",
-  "description": "把记忆文件裁成一页交给前缀，并在卡尾报出哪几天缺、哪天躺在两份文件里。只读，不写盘。",
+  "description": "把几份记忆折进系统前缀，并给 bot 一套写记忆、找旧事的工具；到期与余量在卡尾报出，超限只提醒、不截断。",
   "author": "xiaofentai",
   "license": "AGPL-3.0-or-later",
   "repository": {
@@ -38,7 +38,7 @@
     "locales": {
       "zh": {
         "displayName": "记忆树网",
-        "description": "把要它记住的那几份折成「一行一块」的图谱，交接前先放在眼前；末尾还会报出哪几天已在窗口外、哪一份条目超了，但一个块都不丢。只读，不写，不联网。"
+        "description": "把要它记住的那几份折成「一行一块」的图谱，交接前先放在眼前；末尾报出哪几天在窗口外、哪一份条目超了，但一个块都不丢。另给八个工具，让她自己写、自己压、自己搬。不调用模型，不联网。"
       }
     }
   },
@@ -49,7 +49,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test tests/parse.test.ts tests/board.test.ts tests/write.test.ts tests/tools.test.ts tests/archive.test.ts tests/recall.test.ts",
+    "test": "node --test tests/parse.test.ts tests/board.test.ts tests/write.test.ts tests/tools.test.ts tests/archive.test.ts tests/recall.test.ts tests/text.test.ts tests/recent.test.ts tests/prime.test.ts tests/audit.test.ts tests/route.test.ts",
     "dump": "node scripts/dump.ts",
     "check": "node scripts/check.ts"
   },

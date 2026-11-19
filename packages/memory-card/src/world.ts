@@ -33,7 +33,12 @@ export class MemoryCardWorld implements World {
   private host: WorldHost | null = null;
   private languageCache: { at: number; value: Language } | null = null;
 
-  constructor(private readonly opts: MemoryCardWorldOptions) {}
+  private readonly opts: MemoryCardWorldOptions;
+
+  // 不用参数属性：Node 的 strip-only 模式不认这种写法，脚本就 import 不了这个文件
+  constructor(opts: MemoryCardWorldOptions) {
+    this.opts = opts;
+  }
 
   private get cfg(): MemoryCardConfigSection {
     return this.opts.cfg;
