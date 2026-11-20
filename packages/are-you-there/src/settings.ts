@@ -43,9 +43,9 @@ export interface WorldSettings {
   radarMaxDistance: number;
   /** 软件侧上限，cm。 */
   radarMaxCm: number;
-  /** 雷达连续多久没测到人算离开，秒。 */
+  /** 从最后一次看见近处的人到认定雷达说没人的总时长，秒；低于硬件延迟时按硬件算。 */
   radarAbsentSeconds: number;
-  /** 雷达连续测到人多久才算回来，秒。 */
+  /** 回来观察窗口的一部分，秒；加上模块硬件延迟就是完整窗口。 */
   radarBackSeconds: number;
   /** 短暂经过推不推事件。 */
   radarPassByNotify: boolean;
@@ -153,17 +153,38 @@ export function trackerSettings(settings: WorldSettings): { port: string; maxDis
   };
 }
 
+/** 模块目标消失延迟读不到时用出厂值兜底。 */
+export const RADAR_GONE_FALLBACK_MS = 30_000;
+
+/**
+ * 雷达说没人的总时长：配置是下限，模块硬件延迟更长时按硬件算。
+ *
+ * 这样旧设置文件里 `radarAbsentSeconds=5` 也不会让判定比模块还快。
+ */
+export function settingsAbsentMs(settings: WorldSettings, goneMs: number | null): number {
+  return Math.max(settings.radarAbsentSeconds * 1000, goneMs ?? RADAR_GONE_FALLBACK_MS);
+}
+
 /** 迟滞参数，毫秒。 */
-export function settingsThresholds(settings: WorldSettings): RadarThresholds {
+export function settingsThresholds(settings: WorldSettings, goneMs: number | null): RadarThresholds {
   return {
     maxCm: settings.radarMaxCm,
-    absentMs: settings.radarAbsentSeconds * 1000,
+    absentMs: settingsAbsentMs(settings, goneMs),
     presentMs: RADAR_PRESENT_MS,
-    backMs: settings.radarBackSeconds * 1000,
   };
 }
 
 /** 雷达说没人时要求的键鼠安静时长，毫秒；0 表示不设这个门槛。 */
 export function settingsQuietMs(settings: WorldSettings): number {
   return settings.radarQuietSeconds * 1000;
+}
+
+/**
+ * 回来观察窗口：界面上那段时间 + 模块自己的目标消失延迟。
+ *
+ * 人短暂出现又走了，模块还要等这段硬件延迟才报 OFF；窗口必须盖住它，
+ * 才能看见「跌落回没人」，否则路过会被当成回来。
+ */
+export function settingsBackWindowMs(settings: WorldSettings, goneMs: number | null): number {
+  return settings.radarBackSeconds * 1000 + (goneMs ?? RADAR_GONE_FALLBACK_MS);
 }

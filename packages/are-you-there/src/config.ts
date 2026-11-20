@@ -38,9 +38,9 @@ export interface AreYouThereConfigSection extends WorldSection {
   radarMaxDistance: number;
   /** 软件侧上限：只有这么近的人才算「在桌前」，cm。同时用来发现模块参数被重置。 */
   radarMaxCm: number;
-  /** 雷达连续多久没测到人算离开，秒。模块自己还有一段「目标消失延迟」。 */
+  /** 从最后一次看见近处的人，到插件认定雷达说没人，至少等这么久，秒。低于硬件延迟时按硬件算。 */
   radarAbsentSeconds: number;
-  /** 雷达连续测到人多久才撤销「离开」，秒；比这更短的当作路过。 */
+  /** 雷达回来观察窗口的一部分，秒；再加上模块硬件延迟，窗口内判断回来还是路过。 */
   radarBackSeconds: number;
   /** 比上面那段时间还短的「有人」推一条路过事件。 */
   radarPassByNotify: boolean;
@@ -66,17 +66,19 @@ export const MIN_RADAR_MAX_CM = 30;
 export const MAX_RADAR_MAX_CM = 1000;
 export const DEFAULT_RADAR_MAX_CM = 120;
 
-export const DEFAULT_RADAR_ABSENT_SECONDS = 5;
-export const MAX_RADAR_ABSENT_SECONDS = 600;
-/** 默认 10 秒：站一下、伸个手不算回来，只推一条「有人经过」。 */
+/**
+ * 从最后一次看见近处的人到认定雷达说没人的总时长，默认 35 = 硬件 30 + 软件确认 5。
+ * 这是个下限：如果模块硬件延迟比它长，就按硬件算。
+ */
+export const DEFAULT_RADAR_ABSENT_SECONDS = 35;
+export const MAX_RADAR_ABSENT_SECONDS = 300;
+
+/** 默认 10 秒：加上模块 30 秒硬件延迟，构成 40 秒的回来观察窗口。 */
 export const DEFAULT_RADAR_BACK_SECONDS = 10;
 export const MAX_RADAR_BACK_SECONDS = 120;
 /**
- * 雷达说没人、但键鼠还热着时，多半是雷达漏检。
- *
- * 取 35 = 模块的目标消失延迟 30 + 上面的 radarAbsentSeconds 5：这样这条门槛正好相当于
- * 「最后一次输入晚于雷达最后一次看见你」，既不会给真实离开再加延迟，也不会把「刚敲完字就报没人」当真。
- * 比 35 短就形同虚设，比 35 长它自己就成了离开判定的瓶颈。
+ * 雷达说没人、但键鼠还热着时，多半是雷达漏检。默认 35 秒正好和上面的离开总时长对齐：
+ * 最后一次输入晚于雷达最后一次看见你，就不会把「刚敲完字就报没人」当真。
  */
 export const DEFAULT_RADAR_QUIET_SECONDS = 35;
 export const MAX_RADAR_QUIET_SECONDS = 3600;

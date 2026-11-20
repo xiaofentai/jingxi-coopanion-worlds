@@ -48,6 +48,7 @@ export interface AreYouThereText {
     radarPresent: (cm: string) => string;
     radarDown: string;
     radarWarming: string;
+    radarCooling: string;
     unknown: string;
     lastAway: (from: string, to: string, span: string) => string;
     noLastAway: string;
@@ -75,6 +76,7 @@ export interface AreYouThereText {
     radarNotWindows: string;
     radarDisconnected: (reason: string) => string;
     radarWarming: string;
+    radarCooling: string;
     radarStale: string;
     radarSeen: (cm: string, at: string) => string;
     radarAbsent: (span: string, cm: string) => string;
@@ -119,11 +121,14 @@ export interface AreYouThereText {
     /** 卡片底下那句：LD2402 自己的硬件延迟。 */
     radarLatency: (gone: string) => string;
     radarLatencyUnknown: string;
-    /** 「多久没人算离开」右上角那个小标：模块延迟加上这一项之后的合计。 */
+    /** 「多久有人才算回来」右上角那个小标：人回来后最迟多久推回来事件。 */
     radarTotal: (total: string) => string;
+    /** 「多久没人算离开」那一行的提示：硬件延迟、推荐值、当前值与生效值。 */
+    radarAbsentHint: (gone: string, recommended: string, current: string, effective: string) => string;
     present: string;
     absent: string;
     warming: string;
+    cooling: string;
     stale: string;
     far: string;
     down: string;
@@ -229,13 +234,15 @@ const zh: AreYouThereText = {
     radarAbsentSeconds: {
       title: '雷达多久没人算离开',
       description:
-        '单位秒。这是在模块报出「没人」之后再等的秒数——模块自己还有一段「目标消失延迟」（这台机器实测 30 秒），'
-        + '所以从离桌到判离开是两者之和。默认 5 秒，即约 35 秒后判离开。',
+        '单位秒，从雷达最后一次在桌前看到人到认定「没人」的总时长，默认 35 秒。'
+        + '填得比模块硬件延迟短也没用，会按硬件延迟算。',
       suffix: '秒',
     },
     radarBackSeconds: {
       title: '雷达多久有人才算回来',
-      description: '单位秒。雷达要连续测到人这么久才算「ta 回来了」；比这更短的算路过，只推一条经过事件，状态不变。默认 10 秒。',
+      description:
+        '单位秒。这一项加上模块自己的目标消失延迟（默认 30 秒）就是回来观察窗口，默认合计 40 秒。'
+        + '窗口内键鼠动过就立刻算回来；没动过就看是否跌落回没人——跌落算路过，持续有人到窗口结束才算回来。',
       suffix: '秒',
     },
     radarPassByNotify: {
@@ -245,9 +252,8 @@ const zh: AreYouThereText = {
     radarQuietSeconds: {
       title: '键鼠还热着就不信雷达',
       description:
-        '单位秒，这是「键鼠至少安静这么久」的下限。实际窗口会自动变大：雷达说多久没看到人，'
-        + '那整段时间里只要键鼠动过就不信它——避免雷达漏检十分钟、你两分钟前动过鼠标还是被判走。'
-        + '键鼠只要短暂动过几秒不算数：静默满这个时间后就和雷达交叉成立，照常判离开。'
+        '单位秒：雷达报没人时，键鼠也要静默这么久才交叉成立。默认 35 秒，正好是模块 30 秒硬件延迟加 5 秒确认，'
+        + '所以刚敲完字就被雷达误报走的情况不会发生。短暂动几秒不算数——静默够了照样判走。'
         + '0 表示完全听雷达的：它一报没人就算走。',
       suffix: '秒',
     },
@@ -265,6 +271,7 @@ const zh: AreYouThereText = {
     radarPresent: (cm) => `，雷达在 ${cm} 厘米`,
     radarDown: '，雷达没连上',
     radarWarming: '，雷达还没在范围内见到人',
+    radarCooling: '，雷达很久没在范围内见到人，先不参与判定',
     unknown: '还不知道（启动后还没读到一次成功的读数）',
     lastAway: (from, to, span) => `${from} → ${to}，${span}`,
     noLastAway: '还没记到过一次离开',
@@ -293,6 +300,7 @@ const zh: AreYouThereText = {
     radarNotWindows: '只在 Windows 上能读',
     radarDisconnected: (reason) => `没连上（${reason}）`,
     radarWarming: '连上了，但还没在范围内读到人（先不参与判定）',
+    radarCooling: '很久没在范围内读到人了，旧读数不作数，先不参与判定',
     radarSeen: (cm, at) => `${cm} 厘米有人（最近一帧 ${at}）`,
     radarAbsent: (span, cm) => `已经 ${span}没测到人，最近一次在 ${cm}`,
     radarFar: (cm) => `读到的人全在 ${cm} 之外，模块探测距离多半被重置了，先不参与判定`,
@@ -338,9 +346,11 @@ const zh: AreYouThereText = {
     judgeDescription: '键鼠空闲到阈值后，先看一眼前台窗口，再看屏幕在不在变；两项都没认定才判离开。',
     radarOff: '没打开「雷达判定」，这里没有可调项。',
     status: '状态',
-    radarLatency: (gone) => `LD2402 的硬件延迟是 ${gone}：它要连续这么久测不到人才会报「没人」，上面那项是这之后再加的。`,
-    radarLatencyUnknown: '读不到 LD2402 的硬件延迟（串口没连上时读不到）。实际延迟 = 硬件延迟 + 上面那项，不是只有上面那项。',
-    radarTotal: (total) => `合计 ${total}`,
+    radarLatency: (gone) => `LD2402 的硬件延迟是 ${gone}：它要连续这么久测不到人才会报「没人」；「回来观察窗口」要把这段加进去。`,
+    radarLatencyUnknown: '读不到 LD2402 的硬件延迟（串口没连上时读不到），回来观察窗口按出厂 30 秒估算。',
+    radarTotal: (total) => `人回来后最迟合计 ${total}推送人回来`,
+    radarAbsentHint: (gone, recommended, current, effective) =>
+      `雷达本身延迟 ${gone}，推荐填 ${recommended}；当前填 ${current}，实际按 ${effective} 算（低于硬件延迟时按硬件算）。`,
     fieldPollSeconds: '屏幕多久查一次',
     fieldIdleMinutes: '鼠标空闲判定时长',
     fieldCheckForeground: '空闲时看一眼前台窗口',
@@ -351,6 +361,7 @@ const zh: AreYouThereText = {
     present: '正常工作，有人',
     absent: '正常工作，无人',
     warming: '已连接，还没在范围内见到人',
+    cooling: '旧读数已过期，暂不参与判定',
     stale: '串口开着，但收不到数据',
     far: '读到的距离都在范围之外',
     down: '未连接',
@@ -446,13 +457,16 @@ const en: AreYouThereText = {
     radarAbsentSeconds: {
       title: 'Radar absence that counts as away',
       description:
-        'Seconds. This is how long to wait after the module itself says nobody; the module has a target-gone delay of its own '
-        + '(30 s on this machine), so the real latency is the sum of the two. 5 s means away about 35 s after leaving.',
+        'Seconds: the total wait from the last time the radar saw someone at the desk until it says nobody. 35 s by default. '
+        + 'A value below the module hardware delay has no effect; the hardware value wins.',
       suffix: 's',
     },
     radarBackSeconds: {
       title: 'Radar presence that counts as back',
-      description: 'Seconds. The radar has to see someone for this long before they count as back; anything shorter is a pass-by: one event, no state change. 10 s by default.',
+      description:
+        'Seconds. This plus the module\'s target-gone delay (30 s by default) is the observation window, 40 s in total. '
+        + 'Keyboard or mouse movement inside the window means back; otherwise a drop back to nobody counts as a pass-by, '
+        + 'and only a continuous sighting to the end of the window counts as back.',
       suffix: 's',
     },
     radarPassByNotify: {
@@ -462,10 +476,9 @@ const en: AreYouThereText = {
     radarQuietSeconds: {
       title: 'Ignore the radar while the keyboard is warm',
       description:
-        'Seconds: the floor for how long the keyboard must be quiet before the radar is trusted. The real window grows with the radar: '
-        + 'any input during the whole time the radar has seen nobody vetoes its verdict, so a ten-minute dropout cannot call you away '
-        + 'if you moved the mouse two minutes ago. A brief blip does not count: once quiet for this long, the radar verdict stands. '
-        + '0 trusts the radar completely.',
+        'Seconds: when the radar says nobody, the keyboard must also have been quiet this long before the two agree on away. '
+        + '35 s by default, matching the module\'s 30 s hardware delay plus the 5 s confirmation, so a fresh keystroke cannot be '
+        + 'overridden by a stale radar report. A brief blip does not count. 0 trusts the radar completely.',
       suffix: 's',
     },
     radarGroup: {
@@ -482,6 +495,7 @@ const en: AreYouThereText = {
     radarPresent: (cm) => `, radar at ${cm} cm`,
     radarDown: ', radar not connected',
     radarWarming: ', the radar has not seen anyone in range yet',
+    radarCooling: ', the last sighting is too old to trust, so the radar does not take part in the verdict',
     unknown: 'Not known yet (no successful reading since start)',
     lastAway: (from, to, span) => `${from} to ${to}, ${span}`,
     noLastAway: 'No away period recorded yet',
@@ -511,6 +525,7 @@ const en: AreYouThereText = {
     radarNotWindows: 'only readable on Windows',
     radarDisconnected: (reason) => `not connected (${reason})`,
     radarWarming: 'connected, but nobody in range yet, so it does not take part in the verdict',
+    radarCooling: 'nobody in range for a long time; the old sighting is stale, so it does not take part in the verdict',
     radarSeen: (cm, at) => `someone at ${cm} cm (last frame ${at})`,
     radarAbsent: (span, cm) => `no target for ${span}, last seen at ${cm}`,
     radarFar: (cm) => `everything it sees is beyond ${cm}, the module range was probably reset, so it does not take part in the verdict`,
@@ -556,9 +571,11 @@ const en: AreYouThereText = {
     judgeDescription: 'Once the keyboard and mouse reach the idle threshold, the foreground window is checked first and the screen second; only if neither counts as watching do they count as away.',
     radarOff: '"Use the mmWave radar" is off, so there is nothing to tune here.',
     status: 'State',
-    radarLatency: (gone) => `The LD2402 has a hardware delay of ${gone}: it only reports nobody after that long without a target, and the field above is added on top.`,
-    radarLatencyUnknown: 'The LD2402 hardware delay could not be read (it is unreadable while the port is down). The real latency is that delay plus the field above, not the field alone.',
-    radarTotal: (total) => `${total} total`,
+    radarLatency: (gone) => `The LD2402 has a hardware delay of ${gone}: it only reports nobody after that long without a target. The back observation window includes it.`,
+    radarLatencyUnknown: 'The LD2402 hardware delay could not be read (it is unreadable while the port is down); the back window uses the factory 30 s.',
+    radarTotal: (total) => `Back event is pushed at most ${total} after they return`,
+    radarAbsentHint: (gone, recommended, current, effective) =>
+      `Module delay ${gone}; ${recommended} is recommended. Current ${current}, effective ${effective} (a value below the module delay uses the module delay).`,
     fieldPollSeconds: 'How often to check the screen',
     fieldIdleMinutes: 'Mouse idle time',
     fieldCheckForeground: 'Look at the foreground window when idle',
@@ -569,6 +586,7 @@ const en: AreYouThereText = {
     present: 'Working, someone at the desk',
     absent: 'Working, nobody at the desk',
     warming: 'Connected, but nobody has been in range yet',
+    cooling: 'Last sighting is too old; not used for the verdict',
     stale: 'The port is open but no data is arriving',
     far: 'Everything it reads is beyond the configured range',
     down: 'Not connected',

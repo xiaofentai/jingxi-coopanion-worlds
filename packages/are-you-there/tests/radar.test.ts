@@ -5,15 +5,17 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ARE_YOU_THERE_DEFAULTS, areYouThereConfigGroup } from '../src/config.ts';
 import { decidePresence } from '../src/presence.ts';
 import {
-  RADAR_FAR_LIMIT_MS, RADAR_STALE_MS, decideRadar, emptyRadarReading, parseRadarLine,
+  RADAR_FAR_LIMIT_MS, RADAR_STALE_MS, RADAR_TRUST_MS,
+  decideRadar, emptyRadarReading, parseRadarLine, radarTrustExpired,
   type RadarReading,
 } from '../src/radar.ts';
 import {
-  LEGACY_SETTINGS_FILE, SETTINGS_FILE, clampSettings, readSettings, seedSettings, trackerSettings, writeSettings,
+  LEGACY_SETTINGS_FILE, SETTINGS_FILE, clampSettings, readSettings, seedSettings,
+  settingsAbsentMs, settingsBackWindowMs, trackerSettings, writeSettings,
 } from '../src/settings.ts';
 import { areYouThereText } from '../src/text.ts';
 
-const THRESHOLDS = { maxCm: 120, absentMs: 5_000, presentMs: 2_000, backMs: 2_000 };
+const THRESHOLDS = { maxCm: 120, absentMs: 5_000, presentMs: 2_000 };
 
 /** 一份「刚刚在 79 厘米处见到人」的读数，按需覆盖。 */
 function reading(overrides: Partial<RadarReading> = {}): RadarReading {
@@ -66,7 +68,7 @@ describe('decideRadar', () => {
   it('reports present once somebody has been in range long enough', () => {
     const now = 1_000_000;
     const decision = decideRadar(reading({ at: now, presentSince: now - 2_500 }), now, THRESHOLDS);
-    expect(decision).toEqual({ present: true, absent: false, absentMs: null, cm: 79 });
+    expect(decision).toEqual({ present: true, absent: false, absentMs: null, cm: 79, offFrame: true });
   });
 
   it('waits out the back delay so somebody walking past does not count', () => {
@@ -74,18 +76,12 @@ describe('decideRadar', () => {
     expect(decideRadar(reading({ at: now, presentSince: now - 500 }), now, THRESHOLDS)).toBeNull();
   });
 
-  it('reports absent after the absence threshold, and says how long it has been', () => {
+  it('trusts a module OFF immediately and reports the full span', () => {
     const now = 1_000_000;
     const gone = reading({ at: now, lastPresentAt: now - 9_000, presentSince: null });
     expect(decideRadar(gone, now, THRESHOLDS)).toEqual({
-      present: false, absent: true, absentMs: 9_000, cm: 79,
+      present: false, absent: true, absentMs: 9_000, cm: 79, offFrame: true,
     });
-  });
-
-  it('stays undecided while the absence is shorter than the threshold', () => {
-    const now = 1_000_000;
-    const gone = reading({ at: now, lastPresentAt: now - 1_000, presentSince: null });
-    expect(decideRadar(gone, now, THRESHOLDS)).toBeNull();
   });
 
   it('drops a reading that stopped updating, rather than treating it as nobody there', () => {
@@ -110,11 +106,30 @@ describe('decideRadar', () => {
     });
     expect(decideRadar(far, now, THRESHOLDS)).toBeNull();
   });
+
+  it('flags a sighting from hours ago without blocking a genuinely cold keyboard', () => {
+    const now = 1_000_000;
+    const old = reading({ at: now, lastPresentAt: now - RADAR_TRUST_MS - 1, presentSince: null });
+    expect(radarTrustExpired(old, now)).toBe(true);
+    expect(radarTrustExpired(reading({ at: now }), now)).toBe(false);
+    // 纯函数只标出「旧」；要不要撤销信任由 World 结合键鼠决定
+    expect(decideRadar(old, now, THRESHOLDS)?.absent).toBe(true);
+  });
+
+  it('uses the same total window for far readings, without counting the hardware delay twice', () => {
+    const now = 1_000_000;
+    const due = THRESHOLDS.absentMs;
+    const far = reading({ at: now, lastPresentAt: now - due + 1, presentSince: null, farSince: now - due + 1 });
+    expect(decideRadar(far, now, THRESHOLDS)).toBeNull();
+    expect(decideRadar({ ...far, lastPresentAt: now - due, farSince: now - due }, now, THRESHOLDS)).toEqual({
+      present: false, absent: true, absentMs: due, cm: 79, offFrame: false,
+    });
+  });
 });
 
 describe('decidePresence with the radar attached', () => {
-  const absent = { present: false, absent: true, absentMs: 9_000, cm: 79 };
-  const present = { present: true, absent: false, absentMs: null, cm: 79 };
+  const absent = { present: false, absent: true, absentMs: 9_000, cm: 79, offFrame: true };
+  const present = { present: true, absent: false, absentMs: null, cm: 79, offFrame: true };
 
   it('lets the lock win over everything else', () => {
     expect(decidePresence(true, 11 * 60_000, 10 * 60_000, present)).toEqual({ away: true, reason: 'lock' });
@@ -163,6 +178,8 @@ describe('text and config wiring', () => {
       expect(text.event.awayRadar('9 s', '')).toBeTruthy();
       expect(text.event.backRadar('12:00', '5 min')).toBeTruthy();
       expect(text.tool.radarFar('120')).toBeTruthy();
+      expect(text.tool.radarCooling).toBeTruthy();
+      expect(text.lines.radarCooling).toBeTruthy();
       expect(text.tool.radarStale).toBeTruthy();
       expect(text.tool.lampStarting).toBeTruthy();
       expect(text.tool.idleCross('35 秒')).toContain('35');
@@ -175,7 +192,7 @@ describe('text and config wiring', () => {
       expect(text.badge.centimetres('79')).toContain('79');
       for (const key of [
         'title', 'description', 'lockTitle', 'lockDescription', 'judgeTitle', 'judgeDescription', 'radarTitle', 'radarDescription',
-        'radarOff', 'status', 'radarLatencyUnknown', 'present', 'absent', 'warming', 'stale', 'far', 'down', 'starting',
+        'radarOff', 'status', 'radarLatencyUnknown', 'present', 'absent', 'warming', 'cooling', 'stale', 'far', 'down', 'starting',
         'fieldPollSeconds', 'fieldIdleMinutes', 'fieldCheckForeground', 'fieldMediaKeywords', 'fieldCheckScreen',
         'fieldPort', 'fieldMaxDistance', 'fieldMaxCm', 'fieldAbsentSeconds', 'fieldBackSeconds',
         'fieldPassByNotify', 'fieldQuietSeconds', 'saved',
@@ -184,7 +201,8 @@ describe('text and config wiring', () => {
       }
       expect(text.panel.saveFailed('x')).toContain('x');
       expect(text.panel.radarLatency('30 秒')).toContain('30');
-      expect(text.panel.radarTotal('35 秒')).toContain('35');
+      expect(text.panel.radarTotal('40 秒')).toContain('40');
+      expect(text.panel.radarAbsentHint('30 秒', '35 秒', '5 秒', '30 秒')).toContain('30');
       expect(text.lines.awayRadar('11-17 15:10', '9 s')).toBeTruthy();
     }
   });
@@ -224,17 +242,30 @@ describe('the settings file', () => {
       radarPort: '  ',
       radarMaxDistance: 999,
       radarMaxCm: 0,
-      radarAbsentSeconds: 10_000,
+      radarAbsentSeconds: 999,
       radarBackSeconds: -5,
       radarQuietSeconds: -1,
     }, fallback);
     expect(clamped.radarPort).toBe('auto');
     expect(clamped.radarMaxDistance).toBe(100);
     expect(clamped.radarMaxCm).toBe(30);
-    expect(clamped.radarAbsentSeconds).toBe(600);
+    expect(clamped.radarAbsentSeconds).toBe(300);
     expect(clamped.radarBackSeconds).toBe(0);
     expect(clamped.radarQuietSeconds).toBe(0);
     expect(clamped.radarPassByNotify).toBe(fallback.radarPassByNotify);
+  });
+
+  it('floors the total absence window at the module delay', () => {
+    const settings = seedSettings(cfg);
+    expect(settingsAbsentMs(settings, 30_000)).toBe(35_000);
+    expect(settingsAbsentMs({ ...settings, radarAbsentSeconds: 5 }, 30_000)).toBe(30_000);
+    expect(settingsAbsentMs(settings, 5_000)).toBe(35_000);
+  });
+
+  it('uses the module delay to build the back observation window', () => {
+    const settings = seedSettings(cfg);
+    expect(settingsBackWindowMs(settings, 30_000)).toBe(40_000);
+    expect(settingsBackWindowMs(settings, null)).toBe(40_000);
   });
 
   it('passes real numbers, not undefined, into the tracker', () => {

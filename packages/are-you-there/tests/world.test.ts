@@ -39,9 +39,12 @@ interface Setup {
     farSinceAgoMs?: number;
     /** 模块自己的目标消失延迟，秒。 */
     goneSeconds?: number;
+    /** 假时钟测试里，读数里的时间戳也跟着走。 */
+    nowMs?: number;
   };
   radarQuietSeconds?: number;
   radarBackSeconds?: number;
+  now?: () => number;
 }
 
 /** 一份「刚刚」的雷达读数：`absentMs` 之前见过人、当前这一帧在 79 厘米处。 */
@@ -55,8 +58,9 @@ function radarReading(opts: {
   sawNear?: boolean;
   farSinceAgoMs?: number;
   goneSeconds?: number;
+  nowMs?: number;
 }): RadarReading {
-  const now = Date.now();
+  const now = opts.nowMs ?? Date.now();
   return {
     ...emptyRadarReading(),
     linked: opts.linked ?? true,
@@ -141,7 +145,14 @@ function setup(opts: Setup = {}) {
   let idleReading: IdleReading = { idleMs: 0, at: Date.now() };
   const radar = opts.radar === undefined ? null : radarReading(opts.radar);
   /** 换一份雷达读数，用来模拟「刚才还在、现在走了」。 */
-  const setRadar = (next: { absentMs?: number; presentMs?: number; streakMs?: number }) => {
+  const setRadar = (next: {
+    absentMs?: number;
+    presentMs?: number;
+    streakMs?: number;
+    farSinceAgoMs?: number;
+    goneSeconds?: number;
+    nowMs?: number;
+  }) => {
     radarState.current = radarReading(next);
   };
   const radarState: { current: RadarReading | null } = { current: radar };
@@ -176,6 +187,7 @@ function setup(opts: Setup = {}) {
       },
     },
     radar: radar === null ? undefined : { latest: () => radarState.current },
+    now: opts.now,
     confirm: {
       foreground: async () => (opts.foreground === undefined ? null : opts.foreground),
       screen: async () => (opts.screen === undefined ? null : opts.screen),
@@ -310,7 +322,7 @@ describe('world', () => {
     await world.start(host as never);
     await settle();
     pushed.length = 0;
-    setRadar({ absentMs: 9_000 });
+    setRadar({ absentMs: 35_000 });
     await tick();
 
     expect(pushed).toHaveLength(1);
@@ -318,6 +330,41 @@ describe('world', () => {
     expect(pushed[0]!.render().startsWith('ta 离开了桌前')).toBe(true);
     expect(pushed[0]!.render()).toContain('79 厘米');
     expect(world.envPromptVars()['here.state']).toContain('雷达没测到人');
+    await world.stop();
+  });
+
+  it('does not call it away from a sighting that is hours old', async () => {
+    const { world, pushed, host, tick, setRadar } = setup({
+      radar: { presentMs: 60_000 },
+      idle: [0, 0, 15 * 60_000],
+      radarQuietSeconds: 35,
+    });
+    await world.start(host as never);
+    await settle();
+    pushed.length = 0;
+    setRadar({ absentMs: 15 * 60 * 60_000 });
+    await tick();
+
+    expect(pushed).toHaveLength(0);
+    const text = (await world.tools()[0]!.handler({}, {} as never)) as string;
+    expect(text).toContain('旧读数不作数');
+    // 闩锁：键鼠冷下来以后也不回头去相信那份旧读数
+    await tick();
+    expect(pushed).toHaveLength(0);
+    await world.stop();
+  });
+
+  it('does not call it away on a single far distance jump', async () => {
+    const { world, pushed, host, tick, setRadar } = setup({
+      radar: { presentMs: 60_000, farSinceAgoMs: 5_000 },
+      radarQuietSeconds: 0,
+    });
+    await world.start(host as never);
+    await settle();
+    pushed.length = 0;
+    await tick();
+
+    expect(pushed).toHaveLength(0);
     await world.stop();
   });
 
@@ -331,7 +378,7 @@ describe('world', () => {
     await world.start(host as never);
     await settle();
     pushed.length = 0;
-    setRadar({ absentMs: 9_000 });
+    setRadar({ absentMs: 35_000 });
     await tick();
 
     expect(pushed).toHaveLength(0);
@@ -340,24 +387,90 @@ describe('world', () => {
   });
 
   it('narrates a brief sighting as a pass-by instead of a return', async () => {
+    let clock = Date.now();
     const { world, pushed, host, tick, setRadar } = setup({
-      radar: { presentMs: 60_000 },
+      now: () => clock,
+      radar: { presentMs: 60_000, nowMs: clock },
+      idle: [60_000, 60_000, 60_000, 60_000],
       radarQuietSeconds: 0,
       radarBackSeconds: 10,
     });
     await world.start(host as never);
     await settle();
-    setRadar({ absentMs: 9_000 });
+    setRadar({ absentMs: 35_000, goneSeconds: 30, nowMs: clock });
     await tick();
     pushed.length = 0;
 
-    // 有人从桌边走过：出现 3 秒又没了
-    setRadar({ absentMs: 300, streakMs: 3_000 });
+    // 人又出现了，开始 40 秒观察窗口
+    clock += 1_000;
+    setRadar({ presentMs: 500, goneSeconds: 30, nowMs: clock });
+    await tick();
+    expect(pushed).toHaveLength(0);
+
+    // 35 秒后模块报 OFF：扣掉 30 秒硬件延迟，人只停了 5 秒，算路过
+    clock += 35_000;
+    setRadar({ absentMs: 44_000, goneSeconds: 30, nowMs: clock });
     await tick();
 
     expect(pushed).toHaveLength(1);
     expect(pushed[0]!.render()).toContain('有人经过');
     expect(world.envPromptVars()['here.state']).toContain('雷达没测到人');
+    await world.stop();
+  });
+
+  it('counts keyboard movement inside the window as an immediate return', async () => {
+    let clock = Date.now();
+    const { world, pushed, host, tick, setRadar } = setup({
+      now: () => clock,
+      radar: { presentMs: 60_000, nowMs: clock },
+      idle: [60_000, 60_000, 60_000, 1_000],
+      radarQuietSeconds: 0,
+      radarBackSeconds: 10,
+    });
+    await world.start(host as never);
+    await settle();
+    setRadar({ absentMs: 35_000, goneSeconds: 30, nowMs: clock });
+    await tick();
+    pushed.length = 0;
+
+    clock += 3_000;
+    setRadar({ presentMs: 1_000, goneSeconds: 30, nowMs: clock });
+    await tick();
+    expect(pushed).toHaveLength(0);
+
+    clock += 2_000;
+    await tick();
+
+    expect(pushed).toHaveLength(1);
+    expect(pushed[0]!.render()).toContain('ta 回到了桌前');
+    await world.stop();
+  });
+
+  it('waits out the full back window when the keyboard stays cold', async () => {
+    let clock = Date.now();
+    const { world, pushed, host, tick, setRadar } = setup({
+      now: () => clock,
+      radar: { presentMs: 60_000, nowMs: clock },
+      idle: [60_000, 60_000, 60_000],
+      radarQuietSeconds: 0,
+      radarBackSeconds: 10,
+    });
+    await world.start(host as never);
+    await settle();
+    setRadar({ absentMs: 35_000, goneSeconds: 30, nowMs: clock });
+    await tick();
+    pushed.length = 0;
+
+    clock += 1_000;
+    setRadar({ presentMs: 2_000, goneSeconds: 30, nowMs: clock });
+    await tick();
+    expect(pushed).toHaveLength(0);
+
+    clock += 40_000;
+    setRadar({ presentMs: 42_000, goneSeconds: 30, nowMs: clock });
+    await tick();
+    expect(pushed).toHaveLength(1);
+    expect(pushed[0]!.render()).toContain('ta 回到了桌前');
     await world.stop();
   });
 
@@ -411,7 +524,7 @@ describe('world', () => {
   });
 
   it('reports the radar state in the read tool', async () => {
-    const { world, host } = setup({ radar: { absentMs: 9_000 } });
+    const { world, host } = setup({ radar: { absentMs: 35_000 } });
     await world.start(host as never);
     await settle();
     const text = (await world.tools()[0]!.handler({}, {} as never)) as string;
@@ -486,8 +599,8 @@ describe('world', () => {
     expect(radar.status?.text).toBe('正常工作，有人');
     expect(radar.status?.hint).toContain('79');
     expect(radar.fields.map((field) => field.key)).toEqual([
-      'radarPort', 'radarMaxDistance', 'radarMaxCm', 'radarAbsentSeconds',
-      'radarBackSeconds', 'radarPassByNotify', 'radarQuietSeconds',
+      'radarPort', 'radarMaxDistance', 'radarMaxCm', 'radarAbsentSeconds', 'radarBackSeconds',
+      'radarPassByNotify', 'radarQuietSeconds',
     ]);
     await world.stop();
   });
@@ -541,8 +654,8 @@ describe('world', () => {
     expect(badgesOf(setup({}).world)).toEqual([]);
   });
 
-  it('counts the module delay into how long they have been gone', async () => {
-    // 模块自己等了 30 秒才报 OFF，插件再等 5 秒：对外应当说 35 秒，不是 5 秒
+  it('reports the configured total span without adding the hardware delay again', async () => {
+    // absentMs 已经是「从最后一次看见人起算的总时长」，事件不该再加一次 gone=30
     const { world, pushed, host, tick, setRadar } = setup({
       radar: { presentMs: 60_000, goneSeconds: 30 },
       radarQuietSeconds: 0,
@@ -550,7 +663,7 @@ describe('world', () => {
     await world.start(host as never);
     await settle();
     pushed.length = 0;
-    setRadar({ absentMs: 5_000, goneSeconds: 30 });
+    setRadar({ absentMs: 35_000, goneSeconds: 30 });
     await tick();
 
     expect(pushed).toHaveLength(1);
@@ -572,7 +685,7 @@ describe('world', () => {
     await tick();
 
     expect(pushed).toHaveLength(1);
-    expect(pushed[0]!.render()).toContain('749 秒');
+    expect(pushed[0]!.render()).toContain('719 秒');
     await world.stop();
   });
 
@@ -606,7 +719,7 @@ describe('world', () => {
     await tick();
 
     expect(pushed).toHaveLength(1);
-    expect(pushed[0]!.render()).toContain('749 秒');
+    expect(pushed[0]!.render()).toContain('719 秒');
     await world.stop();
   });
 
@@ -614,7 +727,7 @@ describe('world', () => {
     // 最后一次输入晚于最后一次看见人：没有上限的话两个时长的差恒定，永远不会判走
     const { world, pushed, host, tick, setRadar } = setup({
       radar: { presentMs: 60_000, goneSeconds: 30 },
-      idle: [400_000], // 6 分 40 秒：比 749 秒短，但超过 5 分钟上限
+      idle: [400_000], // 6 分 40 秒：比 719 秒短，但超过 5 分钟上限
       radarQuietSeconds: 35,
     });
     await world.start(host as never);
@@ -624,7 +737,7 @@ describe('world', () => {
     await tick();
 
     expect(pushed).toHaveLength(1);
-    expect(pushed[0]!.render()).toContain('749 秒');
+    expect(pushed[0]!.render()).toContain('719 秒');
     await world.stop();
   });
 
@@ -636,9 +749,9 @@ describe('world', () => {
     // 卡片底下：LD2402 自己的硬件延迟
     expect(view.sections[2]!.note).toContain('LD2402');
     expect(view.sections[2]!.note).toContain('30 秒');
-    // 那一行右上角的小标：合计
-    const absent = view.sections[2]!.fields.find((field) => field.key === 'radarAbsentSeconds')!;
-    expect(absent.badge).toBe('合计 35 秒');
+    // 那一行右上角的小标：人回来后最迟多久推回来事件
+    const back = view.sections[2]!.fields.find((field) => field.key === 'radarBackSeconds')!;
+    expect(back.badge).toBe('人回来后最迟合计 40 秒推送人回来');
     await world.stop();
   });
 
@@ -647,8 +760,8 @@ describe('world', () => {
     await world.start(host as never);
     await settle();
     const view = (await panelDecl(world).invoke('settings', 'status')) as PanelView;
-    const absent = view.sections[2]!.fields.find((field) => field.key === 'radarAbsentSeconds')!;
-    expect(absent.badge).toBeUndefined();
+    const back = view.sections[2]!.fields.find((field) => field.key === 'radarBackSeconds')!;
+    expect(back.badge).toBeUndefined();
     expect(view.sections[2]!.note).toContain('读不到');
     await world.stop();
   });
