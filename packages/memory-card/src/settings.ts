@@ -1,16 +1,20 @@
 /**
- * 记忆卡的非开关设置存在 `<data>/memory-card-settings.json`。
+ * 记忆卡的非开关设置存在 `config.json` 的 `worlds.memory-card.settings` 段。
  *
  * 配置页只剩启用开关：规则在设置页是一条一张卡（选文件、选取法、填参数），
  * 不再让人手写 `常驻.md|whole||2000` 这种一行五段的格式。
- * 首次运行从 `config.json` 的旧规则槽迁移，之后以这份文件为准。
+ * 首次运行读旧小本子 `<data>/memory-card-settings.json`（或更旧的 config 规则槽）作初值，
+ * 真写进 config.json 后删掉小本子；之后以配置段为准。
  */
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseRules, RULE_MODES, type Cut, type Rule, type RuleMode } from './card.ts';
-import { MEMORY_CARD_DEFAULTS, RULE_SLOTS, type MemoryCardConfigSection } from './config.ts';
+import { MEMORY_CARD_DEFAULTS, MEMORY_CARD_ID, RULE_SLOTS, type MemoryCardConfigSection } from './config.ts';
 
+/** 旧的小本子；迁移成功后会被删掉。 */
 export const CARD_SETTINGS_FILE = 'memory-card-settings.json';
+/** config.json 里放设置的键，和 enabled 开关同住一段。 */
+export const SETTINGS_KEY = 'settings';
 
 export interface CardRule {
   /** 相对记忆目录；空 = 跳过这一条。 */
@@ -123,20 +127,67 @@ export function rulesText(settings: CardSettings): string {
     .join('; ');
 }
 
-export function readSettings(dir: string, cfg: MemoryCardConfigSection): CardSettings {
+/**
+ * 读设置：优先 config.json 里自己那段；没有就看旧小本子并迁过来；都没有才用旧配置槽算初值。
+ *
+ * 迁移必须真写盘 + 删旧文件——否则和 ledger 踩过的坑一样：界面显示"已保存"，
+ * 但小本子一直没出生/没删掉，重启又回退。写盘失败时保留旧文件，下次还能再迁。
+ */
+export function readSettings(botDir: string, dataDir: string, cfg: MemoryCardConfigSection): CardSettings {
   const seed = seedSettings(cfg);
-  const file = join(dir, CARD_SETTINGS_FILE);
-  if (!existsSync(file)) return seed;
+  const configFile = join(botDir, 'config.json');
+  let raw: Record<string, unknown> = {};
   try {
-    return clampSettings(JSON.parse(readFileSync(file, 'utf8')) as Partial<CardSettings>, seed);
+    raw = JSON.parse(readFileSync(configFile, 'utf8')) as Record<string, unknown>;
+  } catch {
+    // config.json 读不到：还能退到旧小本子或 seed，不让 World 起不来
+  }
+  const worlds = raw?.worlds as Record<string, unknown> | undefined;
+  const section = worlds?.[MEMORY_CARD_ID] as Record<string, unknown> | undefined;
+  const stored = section?.[SETTINGS_KEY];
+  if (stored && typeof stored === 'object') {
+    try {
+      return clampSettings(stored as Partial<CardSettings>, seed);
+    } catch {
+      // 坏段就当没配，继续往下找
+    }
+  }
+
+  const legacy = join(dataDir, CARD_SETTINGS_FILE);
+  if (!existsSync(legacy)) return seed;
+  let migrated: CardSettings;
+  try {
+    migrated = clampSettings(JSON.parse(readFileSync(legacy, 'utf8')) as Partial<CardSettings>, seed);
   } catch {
     return seed;
   }
+  writeSettings(botDir, migrated);
+  try {
+    unlinkSync(legacy);
+  } catch {
+    // 删不掉也没关系：config.json 里已经有了，下次读会优先它
+  }
+  return migrated;
 }
 
-export function writeSettings(dir: string, settings: CardSettings): void {
-  const file = join(dir, CARD_SETTINGS_FILE);
+/**
+ * 整份读 config.json，只改 `worlds.memory-card.settings`，其余键一个不动。
+ * 写临时文件再改名：中途崩了不会留下半份配置。配置页那个 enabled 开关也在这份文件里。
+ */
+export function writeSettings(botDir: string, settings: CardSettings): void {
+  const file = join(botDir, 'config.json');
+  let raw: Record<string, unknown> = {};
+  try {
+    raw = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+  } catch {
+    // 文件坏了也要写自己的段：保留能保住的部分
+  }
+  const worlds = (raw.worlds && typeof raw.worlds === 'object' ? raw.worlds : {}) as Record<string, unknown>;
+  const section = (worlds[MEMORY_CARD_ID] && typeof worlds[MEMORY_CARD_ID] === 'object'
+    ? worlds[MEMORY_CARD_ID] : {}) as Record<string, unknown>;
+  worlds[MEMORY_CARD_ID] = { ...section, [SETTINGS_KEY]: settings };
+  raw.worlds = worlds;
   const tmp = `${file}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
+  writeFileSync(tmp, `${JSON.stringify(raw, null, 2)}\n`, 'utf8');
   renameSync(tmp, file);
 }

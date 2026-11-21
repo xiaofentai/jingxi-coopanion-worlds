@@ -22,7 +22,7 @@
 |---|---|---|
 | `enabled` | `true` | 装完就开。关掉就不再往前缀里放这张卡 |
 
-其余设置都在 World 页的 **「设置」** 面板里，落盘到 `<data>/memory-card-settings.json`：
+其余设置都在 World 页的 **「设置」** 面板里，和启用开关一起落在 `config.json` 的 `worlds.memory-card.settings` 段：
 
 | 卡片 | 能改什么 |
 |---|---|
@@ -31,7 +31,7 @@
 
 一条规则管一份文件，**文件留空就跳过那一条**。取法是下拉，不用再手写 `常驻.md|whole||2000` 这种一行五段的格式。
 
-首次启动会把 `config.json` 里的旧规则槽和旧参数迁过来，之后以设置文件为准；`config.json` 里那几个旧字段不再读。
+首次启动会把旧规则槽、以及 0.2.0 及更早版本的 `<data>/memory-card-settings.json` 迁进 `config.json` 的 `settings` 段，随后删掉那个旧文件；之后以配置段为准，`config.json` 里那几个旧规则槽不再读。
 
 ### 取法
 

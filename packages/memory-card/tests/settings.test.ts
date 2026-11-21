@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -98,23 +98,66 @@ describe('clamping what the panel sends', () => {
 });
 
 describe('the settings file', () => {
-  it('falls back to the seed when it is missing', () => {
+  it('falls back to the seed when nothing is stored', () => {
     const dir = temp();
-    expect(readSettings(dir, cfg()).rules[0]!.file).toBe('常驻.md');
+    expect(readSettings(dir, dir, cfg()).rules[0]!.file).toBe('常驻.md');
   });
 
-  it('round-trips what was written', () => {
+  it('round-trips what was written into config.json', () => {
     const dir = temp();
     const settings = seedSettings(cfg());
     settings.rules[0]!.file = 'A.md';
     writeSettings(dir, settings);
-    expect(existsSync(join(dir, CARD_SETTINGS_FILE))).toBe(true);
-    expect(readSettings(dir, cfg()).rules[0]!.file).toBe('A.md');
+    expect(existsSync(join(dir, CARD_SETTINGS_FILE))).toBe(false);
+    const raw = JSON.parse(readFileSync(join(dir, 'config.json'), 'utf8')) as {
+      worlds: { 'memory-card': { settings: CardSettings; enabled?: boolean } };
+    };
+    expect(raw.worlds['memory-card'].settings.rules[0]!.file).toBe('A.md');
+    expect(readSettings(dir, dir, cfg()).rules[0]!.file).toBe('A.md');
   });
 
-  it('falls back to the seed when the file is not valid JSON', () => {
+  it('falls back to the seed when the stored section is not valid', () => {
     const dir = temp();
-    writeFileSync(join(dir, CARD_SETTINGS_FILE), '{ not json', 'utf8');
-    expect(readSettings(dir, cfg()).rules[2]!.mode).toBe('marker+outline');
+    writeFileSync(join(dir, 'config.json'), '{"worlds":{"memory-card":{"settings":"bad"}}}', 'utf8');
+    expect(readSettings(dir, dir, cfg()).rules[2]!.mode).toBe('marker+outline');
+  });
+
+  it('migrates the legacy small file, deletes it, and keeps other config keys', () => {
+    const data = temp();
+    const bot = temp();
+    const legacy = seedSettings(cfg());
+    legacy.rules[0]!.file = 'Migrated.md';
+    legacy.totalChars = 7000;
+    writeFileSync(join(data, CARD_SETTINGS_FILE), JSON.stringify(legacy), 'utf8');
+    writeFileSync(join(bot, 'config.json'), JSON.stringify({
+      language: 'zh',
+      worlds: { 'memory-card': { enabled: true }, 'are-you-there': { enabled: true } },
+    }), 'utf8');
+
+    const got = readSettings(bot, data, cfg());
+    expect(got.rules[0]!.file).toBe('Migrated.md');
+    expect(got.totalChars).toBe(7000);
+    expect(existsSync(join(data, CARD_SETTINGS_FILE))).toBe(false);
+    const raw = JSON.parse(readFileSync(join(bot, 'config.json'), 'utf8')) as {
+      language: string;
+      worlds: Record<string, Record<string, unknown>>;
+    };
+    expect(raw.language).toBe('zh');
+    expect(raw.worlds['memory-card']!.enabled).toBe(true);
+    expect(raw.worlds['are-you-there']!.enabled).toBe(true);
+    expect((raw.worlds['memory-card']!.settings as CardSettings).rules[0]!.file).toBe('Migrated.md');
+  });
+
+  it('does not re-read the legacy file once config.json has its own section', () => {
+    const data = temp();
+    const bot = temp();
+    const legacy = seedSettings(cfg());
+    legacy.rules[0]!.file = 'Legacy.md';
+    writeFileSync(join(data, CARD_SETTINGS_FILE), JSON.stringify(legacy), 'utf8');
+    const current = seedSettings(cfg());
+    current.rules[0]!.file = 'Current.md';
+    writeSettings(bot, current);
+
+    expect(readSettings(bot, data, cfg()).rules[0]!.file).toBe('Current.md');
   });
 });

@@ -2,7 +2,7 @@
  * 配置段 `worlds.memory-card`。
  *
  * 配置页只剩 `enabled` 一个开关；规则、目录、上限都搬进独立「设置」面板，
- * 落盘在 `<data>/memory-card-settings.json`（见 `settings.ts`）。
+ * 和开关一起落盘在 `config.json` 的 `worlds.memory-card.settings` 段（见 `settings.ts`）。
  * 这里的旧字段只作为**首次迁移**的初值，改完设置之后不再读它们。
  */
 import type { ConfigGroup } from 'cortico/core/config-schema.ts';

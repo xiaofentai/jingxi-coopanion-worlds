@@ -4,8 +4,8 @@
  * 只在构建系统前缀时工作：读一次目录、裁一张卡、作为 `mc.*` 变量交出去。没有定时器、没有工具、
  * 不写记忆文件，所以它不会在 session 中途改变前缀——前缀变了就是一次交接。
  *
- * 配置页只剩启用开关；规则、目录、上限在独立「设置」面板里，落在
- * `<data>/memory-card-settings.json`，每次构建前缀时现读，改完下一次交接就生效。
+ * 配置页只剩启用开关；规则、目录、上限在独立「设置」面板里，和开关一起落在
+ * `config.json` 的 `worlds.memory-card.settings` 段，每次构建前缀时现读，改完下一次交接就生效。
  */
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
@@ -30,7 +30,7 @@ export interface MemoryCardWorldOptions {
   cfg: MemoryCardConfigSection;
   /** 部署目录，相对目录以它为准。 */
   botDir: string;
-  /** 数据目录，`memory-card-settings.json` 放在这里。 */
+  /** 数据目录，旧设置文件 `memory-card-settings.json` 在这里；迁移成功后会被删掉。 */
   dataDir: string;
   /** 卡片抬头的时区。 */
   timezone: string;
@@ -52,9 +52,9 @@ export class MemoryCardWorld implements World {
     return this.opts.cfg;
   }
 
-  /** 设置文件很小，每次现读：面板一保存，下一次构建前缀就吃到新值。 */
+  /** 设置很小，每次现读：面板一保存，下一次构建前缀就吃到新值。首次会迁移旧小本子。 */
   private settings(): CardSettings {
-    return readSettings(this.opts.dataDir, this.cfg);
+    return readSettings(this.opts.botDir, this.opts.dataDir, this.cfg);
   }
 
   /** `config.json` 里的语言，文件变了再读一次。 */
@@ -211,7 +211,7 @@ export class MemoryCardWorld implements World {
           cut: text(`cut${index}`, rule.cut) as Cut,
         })),
       };
-      writeSettings(this.opts.dataDir, clampSettings(next, current));
+      writeSettings(this.opts.botDir, clampSettings(next, current));
       return this.panelPayload(language);
     }
     throw new Error(`no such method: ${panel}.${method}`);
