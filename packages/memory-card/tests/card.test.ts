@@ -53,6 +53,13 @@ describe('rules', () => {
     expect(errors).toEqual(['C.md|whole||100|middle']);
   });
 
+  it('accepts marker+outline as a mode', () => {
+    const { rules, errors } = parseRules('M.md|marker+outline|## 按需|1600');
+    expect(errors).toEqual([]);
+    expect(rules[0]!.mode).toBe('marker+outline');
+    expect(rules[0]!.arg).toBe('## 按需');
+  });
+
   it('rejects a path that leaves the folder', () => {
     const dir = folder({ 'A.md': 'inside\n' });
     const result = buildCard(input(dir, '../outside.md|whole||200'));
@@ -132,6 +139,58 @@ describe('whole and marker', () => {
     const result = buildCard(input(dir, 'MEMORY.md|marker|## 按需|2000'));
     expect(result.card).toContain('- 路径');
     expect(result.card).toContain('没找到「## 按需」，整份载入');
+  });
+});
+
+describe('marker with an outline', () => {
+  const doc = [
+    '# M',
+    '',
+    '## 说话',
+    '- 短',
+    '',
+    '## 按需',
+    '总述一行',
+    '',
+    '### 甲',
+    'aaaa',
+    '',
+    '### 乙',
+    'bb',
+    '',
+  ].join('\n');
+
+  it('keeps the blocks after the heading as headings with their sizes, not their text', () => {
+    const dir = folder({ 'M.md': doc });
+    const result = buildCard(input(dir, 'M.md|marker+outline|## 按需|2000'));
+    expect(result.card).toContain('- 短');
+    expect(result.card).toContain('## 按需');
+    expect(result.card).toContain('- 甲 10 字');
+    expect(result.card).toContain('- 乙 8 字');
+    expect(result.card).not.toContain('aaaa');
+    expect(result.card).toContain('这些块没上卡，用 read_file 查看 M.md');
+  });
+
+  it('keeps the outline when the part before the heading is over its limit', () => {
+    const dir = folder({ 'M.md': `# M\n\n## 说话\n${'字'.repeat(200)}\n\n## 按需\n\n### 甲\n${'甲'.repeat(20)}\n` });
+    const result = buildCard(input(dir, 'M.md|marker+outline|## 按需|60'));
+    expect(result.card).toContain('（已截断：还有');
+    expect(result.card).toContain('- 甲 ');
+  });
+
+  it('says how much sits under the heading when it has no sub-headings', () => {
+    const dir = folder({ 'M.md': `# M\n\n## 按需\n${'字'.repeat(30)}\n` });
+    const result = buildCard(input(dir, 'M.md|marker+outline|## 按需|2000'));
+    expect(result.card).toMatch(/这一段还有 \d+ 字，用 read_file 查看 M\.md/);
+    expect(result.card).not.toContain('这些块没上卡');
+  });
+
+  it('still falls back to the whole file when the heading is missing', () => {
+    const dir = folder({ 'M.md': '# M\n\n- 路径\n' });
+    const result = buildCard(input(dir, 'M.md|marker+outline|## 按需|2000'));
+    expect(result.card).toContain('- 路径');
+    expect(result.card).toContain('没找到「## 按需」，整份载入');
+    expect(result.card).not.toContain('这些块没上卡');
   });
 });
 

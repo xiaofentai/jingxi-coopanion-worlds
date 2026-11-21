@@ -1,4 +1,10 @@
-/** 配置段 `worlds.memory-card`：读哪个目录、每份留多少、其余文件怎么列。 */
+/**
+ * 配置段 `worlds.memory-card`。
+ *
+ * 配置页只剩 `enabled` 一个开关；规则、目录、上限都搬进独立「设置」面板，
+ * 落盘在 `<data>/memory-card-settings.json`（见 `settings.ts`）。
+ * 这里的旧字段只作为**首次迁移**的初值，改完设置之后不再读它们。
+ */
 import type { ConfigGroup } from 'cortico/core/config-schema.ts';
 import type { Language } from 'cortico/core/language.ts';
 import type { WorldSection } from 'cortico/world.ts';
@@ -6,35 +12,52 @@ import { memoryCardText } from './text.ts';
 
 export const MEMORY_CARD_ID = 'memory-card';
 
-/** 设置页里能单独填的规则条数；更多的写进 `extraRules`。 */
+/** 设置页里的规则条数；留空的那几条跳过。 */
 export const RULE_SLOTS = 5;
 
 export interface MemoryCardConfigSection extends WorldSection {
-  /** 目录：绝对路径，或相对部署目录；空表示 `workspace`。 */
+  /**
+   * 旧配置：目录。
+   * @deprecated 已搬到设置页；只在首次迁移时读。
+   */
   folder: string;
-  /** 一条规则，`路径|模式|参数|字数上限`。设置页是单行输入，所以一条一行。 */
+  /**
+   * 旧配置：一条规则，`路径|模式|参数|字数上限|方向`。
+   * @deprecated 已搬到设置页；只在首次迁移时读。
+   */
   rule1: string;
+  /** @deprecated 同上。 */
   rule2: string;
+  /** @deprecated 同上。 */
   rule3: string;
+  /** @deprecated 同上。 */
   rule4: string;
+  /** @deprecated 同上。 */
   rule5: string;
-  /** 超出五个槽的规则，分号分隔，格式同上。 */
+  /**
+   * 旧配置：超出五个槽的规则，分号分隔。
+   * @deprecated 已搬到设置页；只在首次迁移时读。
+   */
   extraRules: string;
-  /** 整张卡的字数上限。 */
+  /** @deprecated 已搬到设置页；只在首次迁移时读。 */
   totalChars: number;
-  /** 没进规则的 `.md` 只列路径和首行。 */
+  /** @deprecated 已搬到设置页；只在首次迁移时读。 */
   listOthers: boolean;
+  /** @deprecated 已搬到设置页；只在首次迁移时读。 */
   listMax: number;
-  /** 跳过的目录名或文件名，逗号分隔。 */
+  /** @deprecated 已搬到设置页；只在首次迁移时读。 */
   exclude: string;
 }
 
 export const MEMORY_CARD_DEFAULTS: MemoryCardConfigSection = {
-  enabled: false,
+  // 分工定下来之后，这张卡是常驻的那一半；装完就开着，不用再点一次
+  enabled: true,
   folder: 'workspace',
+  // `marker+outline` 只把「按需」那节之前装进前缀，后面各块的块头与字数也列出来，
+  // 正文仍留在磁盘上——她看到目录，按需自己 `read_file`。
   rule1: '常驻.md|whole||2000',
   rule2: 'partner/偏好与习惯.md|whole||2000',
-  rule3: '记忆.md|whole||1600|tail',
+  rule3: '记忆.md|marker+outline|## 按需|1600',
   rule4: '',
   rule5: '',
   extraRules: '',
@@ -44,28 +67,10 @@ export const MEMORY_CARD_DEFAULTS: MemoryCardConfigSection = {
   exclude: '.git,node_modules,archive,handoffs,blobs',
 };
 
-/** 槽与追加行按顺序拼成 `card.ts` 认的一行一份格式。 */
-export function rulesText(cfg: MemoryCardConfigSection): string {
-  const slots = [cfg.rule1, cfg.rule2, cfg.rule3, cfg.rule4, cfg.rule5]
-    .map((rule) => (rule ?? '').trim())
-    .filter(Boolean);
-  const extra = (cfg.extraRules ?? '')
-    .split(/[;；\n]+/)
-    .map((rule) => rule.trim())
-    .filter(Boolean);
-  return [...slots, ...extra].join('; ');
-}
-
-/** 这份 World 的配置页。每个键都在用的时候读，所以改完不用重启。 */
+/** 这份 World 的配置页：只有一个开关。其余设置在同页的「设置」面板。 */
 export function memoryCardConfigGroup(language: Language = 'zh'): ConfigGroup {
   const c = memoryCardText(language).config;
   const K = `worlds.${MEMORY_CARD_ID}`;
-  const rule = (n: number) => ({
-    type: 'string',
-    title: c.rule.title(n),
-    description: n === 1 ? c.rule.description : c.rule.more,
-    'x-hot': true,
-  });
   return {
     id: `world:${MEMORY_CARD_ID}`,
     owner: `world:${MEMORY_CARD_ID}`,
@@ -74,52 +79,10 @@ export function memoryCardConfigGroup(language: Language = 'zh'): ConfigGroup {
       title: c.group,
       description: c.groupDescription,
       properties: {
-        [`${K}.folder`]: {
-          type: 'string',
-          title: c.folder.title,
-          description: c.folder.description,
-          'x-path': { kind: 'directory' },
-          'x-hot': true,
-        },
-        [`${K}.rule1`]: rule(1),
-        [`${K}.rule2`]: rule(2),
-        [`${K}.rule3`]: rule(3),
-        [`${K}.rule4`]: rule(4),
-        [`${K}.rule5`]: rule(5),
-        [`${K}.extraRules`]: {
-          type: 'string',
-          title: c.extraRules.title,
-          description: c.extraRules.description,
-          'x-hot': true,
-        },
-        [`${K}.totalChars`]: {
-          type: 'integer',
-          title: c.totalChars.title,
-          description: c.totalChars.description,
-          minimum: 0,
-          maximum: 200_000,
-          'x-suffix': c.totalChars.suffix,
-          'x-hot': true,
-        },
-        [`${K}.listOthers`]: {
+        [`${K}.enabled`]: {
           type: 'boolean',
-          title: c.listOthers.title,
-          description: c.listOthers.description,
-          'x-hot': true,
-        },
-        [`${K}.listMax`]: {
-          type: 'integer',
-          title: c.listMax.title,
-          description: c.listMax.description,
-          minimum: 0,
-          maximum: 100,
-          'x-hot': true,
-        },
-        [`${K}.exclude`]: {
-          type: 'string',
-          title: c.exclude.title,
-          description: c.exclude.description,
-          'x-hot': true,
+          title: c.enabled.title,
+          description: c.enabled.description,
         },
       },
     },

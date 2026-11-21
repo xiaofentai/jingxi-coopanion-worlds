@@ -8,12 +8,13 @@ import { closeSync, existsSync, openSync, readFileSync, readdirSync, readSync, s
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 /**
- * `whole` 整份；`marker` 取到某个标题之前；`newest` 取日期最新的几块；`newest+pin` 再固定带上某几块。
+ * `whole` 整份；`marker` 取到某个标题之前；`marker+outline` 同上，再把那个标题之后各块的
+ * 块头与字数列出来（正文仍在磁盘上）；`newest` 取日期最新的几块；`newest+pin` 再固定带上某几块。
  *
  * 全部是「把文件搬进前缀」的取法。按块只出一行的那种（目录式）不在这里——
  * 那是记忆树网的活，卡不参与。
  */
-export type RuleMode = 'whole' | 'marker' | 'newest' | 'newest+pin';
+export type RuleMode = 'whole' | 'marker' | 'marker+outline' | 'newest' | 'newest+pin';
 
 /** 超过字数上限时切哪一头：`tail` 断尾（留开头，默认）；`head` 截头（留结尾）。 */
 export type Cut = 'head' | 'tail';
@@ -73,7 +74,7 @@ interface Block {
   key: number;
 }
 
-const MODES: readonly RuleMode[] = ['whole', 'marker', 'newest', 'newest+pin'];
+export const RULE_MODES: readonly RuleMode[] = ['whole', 'marker', 'marker+outline', 'newest', 'newest+pin'];
 
 const TEXT = {
   zh: {
@@ -88,6 +89,9 @@ const TEXT = {
         : `（已截断：还有 ${n} 字未载入，用 read_file 查看 ${file}。）`,
     headFrom: (title: string) => `（前面已截断；这一段从「${title}」中间开始。）`,
     badRule: (line: string) => `（规则写错了，跳过：${line}）`,
+    outlineLine: (title: string, chars: number) => `- ${title} ${chars} 字`,
+    outlineNote: (file: string) => `（这些块没上卡，用 read_file 查看 ${file}。）`,
+    outlineOnly: (chars: number, file: string) => `（这一段还有 ${chars} 字，用 read_file 查看 ${file}。）`,
     omittedTitle: '### 未上卡的块',
     omittedLine: (file: string, title: string, chars: number) => `- ${file}：${title} ${chars} 字`,
     omittedOver: (n: number) => `- 另有 ${n} 块没有列出。`,
@@ -116,6 +120,9 @@ const TEXT = {
         : `(Truncated: ${n} characters are not here; use read_file for ${file}.)`,
     headFrom: (title: string) => `(The beginning is cut; this part starts in the middle of "${title}".)`,
     badRule: (line: string) => `(Bad rule, skipped: ${line})`,
+    outlineLine: (title: string, chars: number) => `- ${title} (${chars} characters)`,
+    outlineNote: (file: string) => `(These blocks are not on the card; use read_file for ${file}.)`,
+    outlineOnly: (chars: number, file: string) => `(${chars} more characters under this heading; use read_file for ${file}.)`,
     omittedTitle: '### Blocks not on the card',
     omittedLine: (file: string, title: string, chars: number) => `- ${file}: ${title} (${chars} characters)`,
     omittedOver: (n: number) => `- ${n} more blocks are not listed.`,
@@ -147,7 +154,7 @@ export function parseRules(text: string): { rules: Rule[]; errors: string[] } {
     // 第 5 列可省；省了就是断尾（留开头）
     const cutSide: Cut = cut === '' ? 'tail' : (cut as Cut);
     if (
-      parts.length < 4 || parts.length > 5 || !path || !MODES.includes(mode as RuleMode)
+      parts.length < 4 || parts.length > 5 || !path || !RULE_MODES.includes(mode as RuleMode)
       || !Number.isFinite(maxChars) || maxChars < 0 || (cutSide !== 'head' && cutSide !== 'tail')
     ) {
       errors.push(line);
@@ -192,11 +199,13 @@ export function buildCard(input: CardInput): CardResult {
         continue;
       }
       const picked = pick(text.text, rule);
+      const outline = picked.outline ? outlineLines(picked.outline, rule.path, t) : [];
       const section = [
         `### ${rule.path}（${text.mtime}）`,
         '',
         ...(picked.from ? [t.headFrom(picked.from), ''] : []),
         picked.text,
+        ...(outline.length ? ['', ...outline] : []),
         ...(picked.note === 'no-marker' ? ['', t.noMarker(rule.arg)] : []),
         ...(picked.truncated > 0 ? ['', t.truncated(picked.truncated, rule.path, picked.cut)] : []),
       ].join('\n');
@@ -276,18 +285,31 @@ interface Picked {
   note?: 'no-marker';
   /** 分块模式下没进卡的块：没被选中的，以及为字数上限整块丢掉的。 */
   omitted?: Array<{ title: string; chars: number }>;
+  /** `marker+outline`：标记标题之后那些块的块头与字数。 */
+  outline?: Outline;
+}
+
+/** 一个标题之下的块：标题、字数；`total` 是这段原文的总字数。 */
+interface Outline {
+  heading: string;
+  items: Array<{ title: string; chars: number }>;
+  total: number;
 }
 
 function pick(text: string, rule: Rule): Picked {
   if (rule.mode === 'whole') {
     return { ...cap(text, rule.maxChars, rule.cut), blocks: 0 };
   }
-  if (rule.mode === 'marker') {
+  if (rule.mode === 'marker' || rule.mode === 'marker+outline') {
     const marker = rule.arg.trim();
     if (!marker) return { ...cap(text, rule.maxChars, rule.cut), blocks: 0 };
-    const at = text.split('\n').findIndex((line) => line.trimStart().startsWith(marker));
+    const lines = text.split('\n');
+    const at = lines.findIndex((line) => line.trimStart().startsWith(marker));
     if (at < 0) return { ...cap(text, rule.maxChars, rule.cut), blocks: 0, note: 'no-marker' };
-    return { ...cap(text.split('\n').slice(0, at).join('\n'), rule.maxChars, rule.cut), blocks: 0 };
+    const head = cap(lines.slice(0, at).join('\n'), rule.maxChars, rule.cut);
+    if (rule.mode === 'marker') return { ...head, blocks: 0 };
+    // 大纲是「报账」，不是「取数」：正文仍在磁盘上，这里只把块头搬进来
+    return { ...head, blocks: 0, outline: outlineOf(lines.slice(at)) };
   }
 
   const { pre, blocks } = splitBlocks(text);
@@ -306,6 +328,52 @@ function pick(text: string, rule: Rule): Picked {
     blocks: kept.blocks,
     ...(omitted.length ? { omitted } : {}),
   };
+}
+
+/**
+ * 标记标题之后的结构：只到块头，不读正文。
+ *
+ * 直属子块 = 级别比标记标题更深的标题里**最浅的那一层**；一个子块的终点是下一个同级标题，
+ * 所以挂在 `###` 下面的 `####` 算进那一块的字数，不会单独占一行。
+ */
+function outlineOf(lines: string[]): Outline {
+  const heading = (lines[0] ?? '').trim();
+  const base = headingLevel(lines[0] ?? '') || 2;
+  const heads: Array<{ index: number; level: number; title: string }> = [];
+  lines.forEach((line, index) => {
+    const level = headingLevel(line);
+    if (level > base) heads.push({ index, level, title: line.replace(/^#+\s*/, '').trim() });
+  });
+  const shallowest = heads.reduce((min, head) => Math.min(min, head.level), 7);
+  const top = heads.filter((head) => head.level === shallowest);
+  return {
+    heading,
+    items: top.map((head, index) => {
+      const end = index + 1 < top.length ? top[index + 1]!.index : lines.length;
+      return { title: head.title, chars: lines.slice(head.index, end).join('\n').trim().length };
+    }),
+    total: lines.join('\n').trim().length,
+  };
+}
+
+function headingLevel(line: string): number {
+  const match = /^(#{1,6})\s+/.exec(line);
+  return match ? match[1]!.length : 0;
+}
+
+/** 大纲几行：块头照抄，每块带上字数；没有子块时退成一句「还有多少字」。 */
+function outlineLines(
+  outline: Outline,
+  file: string,
+  t: (typeof TEXT)[keyof typeof TEXT],
+): string[] {
+  if (!outline.items.length) return [t.outlineOnly(outline.total, file)];
+  return [
+    outline.heading,
+    ...outline.items.map((item) => t.outlineLine(item.title, item.chars)),
+    '',
+    t.outlineNote(file),
+  ];
 }
 
 function cap(text: string, max: number, cut: Cut): { text: string; truncated: number; cut: Cut; from?: string } {

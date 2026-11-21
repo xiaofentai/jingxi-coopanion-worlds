@@ -1,0 +1,79 @@
+/**
+ * 只作用于「设置」面板，长相沿用控制台自己的卡片与行。
+ *
+ * 1. 折叠卡 summary 只改对齐方式：卡片本身已带一圈内边距，这里再加一圈就会把标题
+ *    顶到离边框三十多像素的地方。左右也不加，免得标题和下面的字段错开。
+ * 2. 长标签（如「超了切哪头」）允许换行，避免文字伸进右侧控件。
+ * 3. 字段行太高：控制台一行自带 12px 上下内边距、40px 输入框，提示再占一到两行，
+ *    五个字段就把一张卡撑满一屏。行距、输入框、提示一起收一点。
+ */
+.mc-settings details.sheet.fold > summary {
+  align-items: center;
+  padding: 0 0 4px;
+}
+
+.mc-settings details.sheet.fold > summary h3 {
+  margin: 0;
+  line-height: 1.25;
+}
+
+.mc-settings details.sheet.fold > .foldbody {
+  padding: 0;
+}
+
+.mc-settings details.sheet.fold > .foldbody > .sh-desc {
+  margin: 0 0 12px;
+}
+
+/* 标签列：网格第一列是写死的 120px，标签再撑 min-width 会盖到右边的输入框上，
+   所以只留换行，不再要最小宽度。 */
+.mc-settings .companion-label {
+  max-width: 18em;
+  padding-right: 12px;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.mc-settings .companion-control {
+  min-width: 0;
+}
+
+/* 控制台把「面板里第一张卡」当成页面开头的无缝起始：`padding-top:0` 加 `border-top:0`，
+   假定上面已经留了 24px 间距、下面也不该有横线。可那段间距加在我们这层 `.mc-settings` 上，
+   没进卡片，于是只有第一条那张卡标题贴着顶边、上边框还缺一条。单独补回来，别动另外几张。
+   上内边距必须写在 summary 上：宿主那条 padding-top:0 的选择器里 `:is(...)` 取的是最具体的
+   那个参数（`.read-feedback:empty:first-child+*`），算下来是 (0,6,0)，压在卡片这一层上改不动它；
+   只有边框那条是 (0,4,0)，下面这行才压得住。 */
+.mc-settings > details.sheet.fold:first-child {
+  border-top: 1px solid var(--border);
+}
+
+.mc-settings > details.sheet.fold:first-child > summary {
+  padding-top: 16px;
+}
+
+.mc-settings .companion-switchbox {
+  min-height: 2rem;
+  align-items: center;
+}
+
+/* 字段行：12px → 8px 上下内边距，五行一共省出四十来像素 */
+.mc-settings .companion-row {
+  padding: 8px 0;
+}
+
+/* 提示行：字号小半号、行高收紧，两行提示少占一行的高度 */
+.mc-settings .companion-control > .home-note {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* 输入框与下拉：40px → 34px，正文仍按中线对齐 */
+.mc-settings .companion-row .tfield input.field,
+.mc-settings .companion-row .tfield select.field {
+  height: 34px;
+  min-height: 34px;
+  padding-block: 0;
+}

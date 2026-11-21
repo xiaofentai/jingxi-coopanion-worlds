@@ -7,6 +7,11 @@ export const MEMORY_CARD: WorldDefinition<MemoryCardConfigSection> = {
   label: 'Memory card',
   defaults: () => ({ ...MEMORY_CARD_DEFAULTS }),
   configOptions: () => [],
-  // `ctx.cfg` 是活的配置段，规则与目录每次构建前缀时现读
-  create: (ctx) => new MemoryCardWorld({ cfg: ctx.cfg, botDir: ctx.botDir, timezone: ctx.timezone }),
+  // `ctx.cfg` 是活的配置段；规则在 `memory-card-settings.json` 里，每次构建前缀时现读
+  create: (ctx) => new MemoryCardWorld({
+    cfg: ctx.cfg,
+    botDir: ctx.botDir,
+    dataDir: ctx.dataDir,
+    timezone: ctx.timezone,
+  }),
 };
