@@ -170,7 +170,9 @@ const zh: AreYouThereText = {
   label: '在吗',
   config: {
     group: '在吗',
-    groupDescription: '隔一会儿查一次屏幕锁没锁、键盘鼠标还有没有动静，把「ta 现在在不在桌前」放进环境提示。',
+    groupDescription: '隔一会儿查一次屏幕锁没锁、键盘鼠标还有没有动静，把「ta 现在在不在桌前」放进环境提示。'
+      + '更新扩展后若「细节设置」页签不见了或内容还是旧的：先按扩展页的「重启进程」，再刷新一次控制台页面'
+      + '（Ctrl+R；样式没变就用 Ctrl+Shift+R 硬刷新）——页面清单只在开页时取。',
     pollSeconds: {
       title: '多久查一次',
       description: '单位秒，范围 5–300。连续两次读到同一结果才算数，所以状态变化最多慢两个间隔。',
@@ -395,7 +397,9 @@ const en: AreYouThereText = {
   label: 'Are you there',
   config: {
     group: 'Are you there',
-    groupDescription: 'Checks the screen lock and whether the keyboard or mouse has been touched, and puts whether they are at the desk into the environment section.',
+    groupDescription: 'Checks the screen lock and whether the keyboard or mouse has been touched, and puts whether they are at the desk into the environment section. '
+      + 'If the "Detailed settings" tab is missing or stale after an update, restart the process from the extensions page and then reload the console page '
+      + '(Ctrl+R; Ctrl+Shift+R for a hard reload if styles still look old): the page list is fetched only when a page opens.',
     pollSeconds: {
       title: 'How often to check',
       description: 'Seconds, 5 to 300. Two readings in a row have to agree, so a change shows up at most two intervals late.',
