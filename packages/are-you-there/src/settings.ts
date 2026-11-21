@@ -1,16 +1,17 @@
 /**
- * 判定细节与雷达的那几项：存在 `<data>/are-you-there-settings.json`，由「设置」面板读写。
+ * 判定细节与雷达的那几项：存在 `config.json` 的 `worlds.are-you-there.settings` 段，
+ * 由「设置」面板读写，和配置页那几个开关同住一份文件。
  *
- * 为什么不放 config.json：World 声明的配置组会被控制台**全部**渲染进「配置」页签，平台没有
- * 「声明了但不显示」这种开关。要让这些项离开配置页，只能退出配置体系自己存——配置页只留
- * 几个一句话能说清的开关。
+ * 为什么设置项不进配置页的 schema：World 声明的配置组会被控制台**全部**渲染进「配置」页签，
+ * 平台没有「声明了但不显示」这种开关；但写进同一份 config.json 的**未声明子段**不会被清理
+ * （真机验证过），所以设置页自己画、数据落在自己的段里，配置页仍只显示那几个开关。
  *
- * 首次运行时用配置里的同名键做初值（0.4.x/0.5.x 的用户把这些值写在 config.json 里），此后以本
- * 文件为准。整份写临时文件再改名，和 `state.ts` 一个路子。
+ * 升级时读旧小本子 `<data>/are-you-there-settings.json`（及更老的 `are-you-there-radar.json`）
+ * 作初值，真写进配置段后删掉旧文件；写入失败时保留旧文件，下次还能再迁。
  */
-import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { AreYouThereConfigSection } from './config.ts';
+import { ARE_YOU_THERE_ID, type AreYouThereConfigSection } from './config.ts';
 import {
   DEFAULT_IDLE_MINUTES, DEFAULT_POLL_SECONDS,
   DEFAULT_RADAR_ABSENT_SECONDS, DEFAULT_RADAR_BACK_SECONDS, DEFAULT_RADAR_MAX_CM,
@@ -20,11 +21,14 @@ import {
 } from './config.ts';
 import { RADAR_PRESENT_MS, type RadarThresholds } from './radar.ts';
 
-/** 放在 `ctx.dataDir` 里，以 World id 开头，不会和别的 World 撞。 */
+/** 旧的小本子，放在 `ctx.dataDir`；迁移成功后删掉。 */
 export const SETTINGS_FILE = 'are-you-there-settings.json';
 
-/** 0.5.x 用的文件名；读到它就搬过来，省得用户白改一遍。 */
+/** 更早的小本子（0.5.x）；读到它也搬过来，省得用户白改一遍。 */
 export const LEGACY_SETTINGS_FILE = 'are-you-there-radar.json';
+
+/** config.json 里放设置的键，和配置页那几个开关同住一段。 */
+export const SETTINGS_KEY = 'settings';
 
 export interface WorldSettings {
   /** 屏幕锁检查的轮询间隔，秒。 */
@@ -115,22 +119,70 @@ function load(file: string, seed: WorldSettings): WorldSettings | null {
   }
 }
 
-/** 读一份；文件坏了就用初值，不拦着 World 干活。 */
-export function readSettings(dir: string, cfg: AreYouThereConfigSection): WorldSettings {
+/**
+ * 读设置：优先 config.json 里自己那段；没有就依次看两份旧小本子并迁过来；都没有才用配置槽初值。
+ *
+ * 迁移必须真写盘 + 删旧文件——否则界面显示"已保存"，但旧本子一直在，重启又被它盖回去。
+ * 写盘失败时保留旧文件，下次还能再迁。
+ */
+export function readSettings(botDir: string, dataDir: string, cfg: AreYouThereConfigSection): WorldSettings {
   const seed = seedSettings(cfg);
-  const own = load(join(dir, SETTINGS_FILE), seed);
-  if (own !== null) return own;
-  // 0.5.x 把雷达那几项写在另一个文件里，读一次搬过来
-  const legacy = load(join(dir, LEGACY_SETTINGS_FILE), seed);
-  return legacy ?? seed;
+  const configFile = join(botDir, 'config.json');
+  let raw: Record<string, unknown> = {};
+  try {
+    raw = JSON.parse(readFileSync(configFile, 'utf8')) as Record<string, unknown>;
+  } catch {
+    // config.json 读不到：还能退到旧小本子或 seed，不让 World 起不来
+  }
+  const worlds = raw?.worlds as Record<string, unknown> | undefined;
+  const section = worlds?.[ARE_YOU_THERE_ID] as Record<string, unknown> | undefined;
+  const stored = section?.[SETTINGS_KEY];
+  if (stored && typeof stored === 'object') {
+    try {
+      return clampSettings(stored as Partial<WorldSettings>, seed);
+    } catch {
+      // 坏段就当没配，继续往下找
+    }
+  }
+
+  // 当前小本子 → 更老的雷达小本子：读到哪一份就迁哪一份
+  for (const name of [SETTINGS_FILE, LEGACY_SETTINGS_FILE]) {
+    const file = join(dataDir, name);
+    if (!existsSync(file)) continue;
+    const found = load(file, seed);
+    if (found === null) continue;
+    writeSettings(botDir, found);
+    try {
+      unlinkSync(file);
+    } catch {
+      // 删不掉也没关系：config.json 里已经有了，下次读会优先它
+    }
+    return found;
+  }
+  return seed;
 }
 
-export function writeSettings(dir: string, settings: WorldSettings): void {
-  const file = join(dir, SETTINGS_FILE);
+/**
+ * 整份读 config.json，只改 `worlds.are-you-there.settings`，其余键一个不动
+ * （配置页那几个开关就在这段里，不能碰）。临时文件再改名，中途崩了不留半份配置。
+ */
+export function writeSettings(botDir: string, settings: WorldSettings): void {
+  const file = join(botDir, 'config.json');
+  let raw: Record<string, unknown> = {};
+  try {
+    raw = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+  } catch {
+    // 文件坏了也要写自己的段：保留能保住的部分
+  }
+  const worlds = (raw.worlds && typeof raw.worlds === 'object' ? raw.worlds : {}) as Record<string, unknown>;
+  const section = (worlds[ARE_YOU_THERE_ID] && typeof worlds[ARE_YOU_THERE_ID] === 'object'
+    ? worlds[ARE_YOU_THERE_ID] : {}) as Record<string, unknown>;
+  worlds[ARE_YOU_THERE_ID] = { ...section, [SETTINGS_KEY]: settings };
+  raw.worlds = worlds;
   const tmp = `${file}.tmp`;
   const fd = openSync(tmp, 'w');
   try {
-    writeFileSync(fd, `${JSON.stringify(settings, null, 2)}\n`);
+    writeFileSync(fd, `${JSON.stringify(raw, null, 2)}\n`);
     fsyncSync(fd);
   } finally {
     closeSync(fd);

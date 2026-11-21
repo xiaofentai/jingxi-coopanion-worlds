@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -11,7 +11,7 @@ import {
 } from '../src/radar.ts';
 import {
   LEGACY_SETTINGS_FILE, SETTINGS_FILE, clampSettings, readSettings, seedSettings,
-  settingsAbsentMs, settingsBackWindowMs, trackerSettings, writeSettings,
+  settingsAbsentMs, settingsBackWindowMs, trackerSettings, writeSettings, type WorldSettings,
 } from '../src/settings.ts';
 import { areYouThereText } from '../src/text.ts';
 
@@ -287,35 +287,58 @@ describe('the settings file', () => {
     expect(trackerSettings(settings)).toEqual({ port: 'COM7', maxDistance: 21, maxCm: 90 });
   });
 
-  it('seeds itself from the config while the file does not exist yet', () => {
+  it('seeds itself from the config while nothing is stored yet', () => {
     const dir = tempDir();
-    const settings = readSettings(dir, { ...cfg, radarMaxCm: 150, checkForeground: true, mediaKeywords: 'vlc' });
+    const settings = readSettings(dir, dir, { ...cfg, radarMaxCm: 150, checkForeground: true, mediaKeywords: 'vlc' });
     expect(settings.radarMaxCm).toBe(150);
     expect(settings.checkForeground).toBe(true);
     expect(settings.mediaKeywords).toBe('vlc');
-    expect(existsSync(join(dir, SETTINGS_FILE))).toBe(false);
   });
 
-  it('round-trips through the file and wins over the config afterwards', () => {
+  it('round-trips through config.json and wins over the config slots afterwards', () => {
     const dir = tempDir();
     const saved = { ...seedSettings(cfg), radarMaxCm: 90, mediaKeywords: 'mpv' };
     writeSettings(dir, saved);
-    expect(existsSync(join(dir, SETTINGS_FILE))).toBe(true);
-    expect(readSettings(dir, { ...cfg, radarMaxCm: 150 })).toEqual(saved);
+    expect(existsSync(join(dir, SETTINGS_FILE))).toBe(false);
+    expect(readSettings(dir, dir, { ...cfg, radarMaxCm: 150 })).toEqual(saved);
   });
 
-  it('picks up the radar file 0.5.x wrote, once', () => {
-    const dir = tempDir();
-    writeFileSync(join(dir, LEGACY_SETTINGS_FILE), JSON.stringify({ radarMaxCm: 111 }), 'utf8');
-    expect(readSettings(dir, cfg).radarMaxCm).toBe(111);
-    // 新文件写下去之后就只认新的
-    writeSettings(dir, { ...seedSettings(cfg), radarMaxCm: 77 });
-    expect(readSettings(dir, cfg).radarMaxCm).toBe(77);
+  it('migrates the current small file, deletes it, and keeps other config keys', () => {
+    const data = tempDir();
+    const bot = tempDir();
+    const legacy = { ...seedSettings(cfg), radarMaxCm: 111, mediaKeywords: 'vlc' };
+    writeFileSync(join(data, SETTINGS_FILE), JSON.stringify(legacy), 'utf8');
+    writeFileSync(join(bot, 'config.json'), JSON.stringify({
+      language: 'zh',
+      worlds: { 'are-you-there': { enabled: true, notifyAway: false }, 'memory-card': { enabled: true } },
+    }), 'utf8');
+
+    expect(readSettings(bot, data, cfg).radarMaxCm).toBe(111);
+    expect(existsSync(join(data, SETTINGS_FILE))).toBe(false);
+    const raw = JSON.parse(readFileSync(join(bot, 'config.json'), 'utf8')) as {
+      language: string;
+      worlds: Record<string, Record<string, unknown>>;
+    };
+    expect(raw.language).toBe('zh');
+    expect(raw.worlds['are-you-there']!.enabled).toBe(true);
+    expect(raw.worlds['are-you-there']!.notifyAway).toBe(false);
+    expect(raw.worlds['memory-card']!.enabled).toBe(true);
+    expect((raw.worlds['are-you-there']!.settings as WorldSettings).mediaKeywords).toBe('vlc');
   });
 
-  it('falls back to the config when the file is corrupt', () => {
+  it('migrates the 0.5.x radar file too, then only reads the config section', () => {
+    const data = tempDir();
+    const bot = tempDir();
+    writeFileSync(join(data, LEGACY_SETTINGS_FILE), JSON.stringify({ radarMaxCm: 111 }), 'utf8');
+    expect(readSettings(bot, data, cfg).radarMaxCm).toBe(111);
+    expect(existsSync(join(data, LEGACY_SETTINGS_FILE))).toBe(false);
+    writeSettings(bot, { ...seedSettings(cfg), radarMaxCm: 77 });
+    expect(readSettings(bot, data, cfg).radarMaxCm).toBe(77);
+  });
+
+  it('falls back to the config when the stored section is corrupt', () => {
     const dir = tempDir();
-    writeFileSync(join(dir, SETTINGS_FILE), '{oops', 'utf8');
-    expect(readSettings(dir, cfg)).toEqual(seedSettings(cfg));
+    writeFileSync(join(dir, 'config.json'), '{"worlds":{"are-you-there":{"settings":"oops"}}}', 'utf8');
+    expect(readSettings(dir, dir, cfg)).toEqual(seedSettings(cfg));
   });
 });

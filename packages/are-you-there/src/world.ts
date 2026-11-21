@@ -161,7 +161,7 @@ export class AreYouThereWorld implements World {
 
   constructor(private readonly opts: AreYouThereWorldOptions) {
     this.state = readState(this.stateFile);
-    this.settings = readSettings(this.opts.dataDir, this.opts.cfg);
+    this.settings = readSettings(this.opts.botDir, this.opts.dataDir, this.opts.cfg);
     this.injectedIdle = opts.idle ?? null;
     this.injectedRadar = opts.radar ?? null;
     this.confirmProbe = opts.confirm ?? defaultConfirmProbe;
@@ -462,7 +462,7 @@ export class AreYouThereWorld implements World {
     if (method === 'status') return this.panelPayload(language);
     if (method === 'save') {
       const next = clampSettings((args?.[0] ?? {}) as Partial<WorldSettings>, this.settings);
-      writeSettings(this.opts.dataDir, next);
+      writeSettings(this.opts.botDir, next);
       const reconnect = next.radarPort !== this.settings.radarPort
         || next.radarMaxDistance !== this.settings.radarMaxDistance;
       this.settings = next;

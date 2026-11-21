@@ -151,7 +151,7 @@ Windows 锁屏时会拉起 `LogonUI.exe`，解锁后它退出，看一眼这个�
 | **空闲判定** | 键鼠判定 | 鼠标空闲判定时长（原「空闲多久算离开」）、看前台窗口（**打开后才出现关键词输入框**）、比较两帧画面 |
 | **雷达** | 雷达判定 | 状态一行 + 串口、距离、门限七项。**雷达开关关着时这张卡里只有一句说明**，没有可调项 |
 
-改完自动保存（停手 0.6 秒），存在 `<data>/are-you-there-settings.json`（不进 `config.json`）：
+改完自动保存（停手 0.6 秒），存在 `config.json` 的 `worlds.are-you-there.settings` 段（和配置页那几个开关同住一份文件）：
 
 | 键 | 默认 | 说明 |
 |---|---|---|
@@ -202,7 +202,7 @@ Windows 锁屏时会拉起 `LogonUI.exe`，解锁后它退出，看一眼这个�
 
 默认关键词：`bilibili,哔哩哔哩,youtube,netflix,twitch,vlc,mpv,potplayer,mpc-hc,mpc-be,爱奇艺,腾讯视频,优酷,芒果tv,抖音,douyin,斗鱼,虎牙,plex,emby,jellyfin`。
 
-**升级**：`config.json` 里这些键不再被读取，只在设置文件还不存在时当一次初值。0.5.x 写在 `are-you-there-radar.json` 里的雷达参数会被读一次搬过来，之后以 `are-you-there-settings.json` 为准。
+**升级**：`config.json` 里这些顶层旧键不再被读取，只在设置段还不存在时当一次初值。0.7.10 及更早版本的 `<data>/are-you-there-settings.json`、以及 0.5.x 的 `<data>/are-you-there-radar.json`，升级后第一次启动会读进来、写进 `config.json` 的 `settings` 段、再删掉旧文件；写盘失败时保留旧文件，下次还能再迁。
 
 ## 环境提示变量
 
@@ -325,7 +325,7 @@ Win10/11 一般免驱（走系统自带 `usbser`）；老系统需要装 CH340 �
 
 在扩展页「手动安装 → 从 npm」里填 `world-are-you-there`，装完重启进程，再在 World 总览里打开「在吗」并确认轮询间隔、空闲阈值与几项判定开关。接了雷达的话，还要打开「用毫米波雷达判定」。
 
-更新到新版本时，按扩展页提示点「重启进程」；如果控制台是单独开着的一页，**再刷新一次**（`Ctrl+R`）——页面清单（哪个 World 有哪些面板）只在开页时取一次，宿主重启不会让它重取。面板或样式看着还是旧的，就用 `Ctrl+Shift+R` 硬刷新：扩展的 `webui.js` / `webui.css` 按版本号地址缓存，普通刷新不会重新拉。判定细节与雷达参数存在 `data/are-you-there-settings.json`，更新不会动它们。
+更新到新版本时，按扩展页提示点「重启进程」；如果控制台是单独开着的一页，**再刷新一次**（`Ctrl+R`）——页面清单（哪个 World 有哪些面板）只在开页时取一次，宿主重启不会让它重取。面板或样式看着还是旧的，就用 `Ctrl+Shift+R` 硬刷新：扩展的 `webui.js` / `webui.css` 按版本号地址缓存，普通刷新不会重新拉。判定细节与雷达参数存在 `config.json` 的 `worlds.are-you-there.settings` 段，更新不会动它们。
 
 ## 许可
 
