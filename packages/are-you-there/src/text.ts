@@ -140,7 +140,9 @@ export interface AreYouThereText {
     fieldCheckScreen: string;
     fieldPort: string;
     fieldMaxDistance: string;
+    fieldMaxDistanceHint: (recommended: string) => string;
     fieldMaxCm: string;
+    fieldMaxCmHint: (recommended: string, minValid: string) => string;
     fieldAbsentSeconds: string;
     fieldBackSeconds: string;
     fieldPassByNotify: string;
@@ -368,7 +370,10 @@ const zh: AreYouThereText = {
     starting: '正在找串口',
     fieldPort: '串口',
     fieldMaxDistance: '模块探测距离',
+    fieldMaxDistanceHint: (recommended) => `推荐填 ${recommended}（2.0 米）：给模块足够量程，近处仍由下面那条过滤。`,
     fieldMaxCm: '只把这么近的人算作在桌前',
+    fieldMaxCmHint: (recommended, minValid) =>
+      `推荐填 ${recommended} 厘米：夹在本人稳定读数与空椅/旁人距离之间；${minValid} 厘米内的近场伪影会忽略。`,
     fieldAbsentSeconds: '多久没人算离开',
     fieldBackSeconds: '多久有人才算回来',
     fieldPassByNotify: '有人经过时推事件',
@@ -593,7 +598,10 @@ const en: AreYouThereText = {
     starting: 'Looking for the serial port',
     fieldPort: 'Serial port',
     fieldMaxDistance: 'Module range',
+    fieldMaxDistanceHint: (recommended) => `Recommended ${recommended} (2.0 m): enough range for the module; the field below still filters the desk area.`,
     fieldMaxCm: 'How close someone has to be',
+    fieldMaxCmHint: (recommended, minValid) =>
+      `Recommended ${recommended} cm: between your seated reading and the empty chair/neighbor; near-field frames under ${minValid} cm are ignored.`,
     fieldAbsentSeconds: 'Absence that counts as away',
     fieldBackSeconds: 'Presence that counts as back',
     fieldPassByNotify: 'Raise an event when someone passes by',

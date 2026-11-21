@@ -16,6 +16,7 @@ import {
   ARE_YOU_THERE_ID, areYouThereConfigGroup,
   MAX_RADAR_ABSENT_SECONDS, MAX_RADAR_BACK_SECONDS, MAX_RADAR_MAX_CM, MAX_RADAR_MAX_DISTANCE,
   MAX_RADAR_QUIET_SECONDS, MIN_POLL_SECONDS, MIN_RADAR_MAX_CM, MAX_POLL_SECONDS, MAX_IDLE_MINUTES,
+  RECOMMENDED_RADAR_MAX_CM, RECOMMENDED_RADAR_MAX_DISTANCE,
   type AreYouThereConfigSection,
 } from './config.ts';
 import {
@@ -33,7 +34,7 @@ import {
   type Debounce, type TasklistRunner,
 } from './probe.ts';
 import {
-  RADAR_FAR_LIMIT_MS, RADAR_STALE_MS, RadarTracker, decideRadar, radarTrustExpired,
+  MIN_VALID_RADAR_CM, RADAR_FAR_LIMIT_MS, RADAR_STALE_MS, RadarTracker, decideRadar, radarTrustExpired,
   type RadarDecision, type RadarReading, type RadarSource,
 } from './radar.ts';
 import {
@@ -380,10 +381,12 @@ export class AreYouThereWorld implements World {
         {
           key: 'radarMaxDistance', label: t.panel.fieldMaxDistance, kind: 'int',
           value: s.radarMaxDistance, min: 0, max: MAX_RADAR_MAX_DISTANCE, suffix: c.radarMaxDistance.suffix,
+          hint: t.panel.fieldMaxDistanceHint(String(RECOMMENDED_RADAR_MAX_DISTANCE)),
         },
         {
           key: 'radarMaxCm', label: t.panel.fieldMaxCm, kind: 'int',
           value: s.radarMaxCm, min: MIN_RADAR_MAX_CM, max: MAX_RADAR_MAX_CM, suffix: c.radarMaxCm.suffix,
+          hint: t.panel.fieldMaxCmHint(String(RECOMMENDED_RADAR_MAX_CM), String(MIN_VALID_RADAR_CM)),
         },
         {
           key: 'radarAbsentSeconds', label: t.panel.fieldAbsentSeconds, kind: 'int',

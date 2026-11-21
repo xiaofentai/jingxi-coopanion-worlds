@@ -6,7 +6,7 @@ import { ARE_YOU_THERE_DEFAULTS, areYouThereConfigGroup } from '../src/config.ts
 import { decidePresence } from '../src/presence.ts';
 import {
   RADAR_FAR_LIMIT_MS, RADAR_STALE_MS, RADAR_TRUST_MS,
-  decideRadar, emptyRadarReading, parseRadarLine, radarTrustExpired,
+  decideRadar, emptyRadarReading, parseRadarLine, radarCmUsable, radarTrustExpired,
   type RadarReading,
 } from '../src/radar.ts';
 import {
@@ -55,6 +55,15 @@ describe('parseRadarLine', () => {
 
   it('tolerates the trailing carriage return Windows adds', () => {
     expect(parseRadarLine('PRESENT 79\r')).toEqual({ kind: 'present', cm: 79 });
+  });
+
+  it('keeps 0 cm as a frame but marks it unusable for presence', () => {
+    expect(parseRadarLine('distance:0')).toBeNull();
+    expect(parseRadarLine('PRESENT 0')).toEqual({ kind: 'present', cm: 0 });
+    expect(radarCmUsable(0)).toBe(false);
+    expect(radarCmUsable(19)).toBe(false);
+    expect(radarCmUsable(20)).toBe(true);
+    expect(decideRadar(reading({ cm: 0, at: 1_000_000 }), 1_000_000, THRESHOLDS)).toBeNull();
   });
 });
 
@@ -194,7 +203,8 @@ describe('text and config wiring', () => {
         'title', 'description', 'lockTitle', 'lockDescription', 'judgeTitle', 'judgeDescription', 'radarTitle', 'radarDescription',
         'radarOff', 'status', 'radarLatencyUnknown', 'present', 'absent', 'warming', 'cooling', 'stale', 'far', 'down', 'starting',
         'fieldPollSeconds', 'fieldIdleMinutes', 'fieldCheckForeground', 'fieldMediaKeywords', 'fieldCheckScreen',
-        'fieldPort', 'fieldMaxDistance', 'fieldMaxCm', 'fieldAbsentSeconds', 'fieldBackSeconds',
+        'fieldPort', 'fieldMaxDistance', 'fieldMaxDistanceHint', 'fieldMaxCm', 'fieldMaxCmHint',
+        'fieldAbsentSeconds', 'fieldBackSeconds',
         'fieldPassByNotify', 'fieldQuietSeconds', 'saved',
       ] as const) {
         expect(text.panel[key], `${language}.panel.${key}`).toBeTruthy();
@@ -203,6 +213,8 @@ describe('text and config wiring', () => {
       expect(text.panel.radarLatency('30 秒')).toContain('30');
       expect(text.panel.radarTotal('40 秒')).toContain('40');
       expect(text.panel.radarAbsentHint('30 秒', '35 秒', '5 秒', '30 秒')).toContain('30');
+      expect(text.panel.fieldMaxDistanceHint('20')).toContain('20');
+      expect(text.panel.fieldMaxCmHint('145', '20')).toContain('145');
       expect(text.lines.awayRadar('11-17 15:10', '9 s')).toBeTruthy();
     }
   });

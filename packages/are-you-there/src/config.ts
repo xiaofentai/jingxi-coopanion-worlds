@@ -59,12 +59,19 @@ export const DEFAULT_MEDIA_KEYWORDS =
 /** 模块最大距离，0.1 m 单位：7 是 0.7 m，100 是 10 m。 */
 export const MIN_RADAR_MAX_DISTANCE = 7;
 export const MAX_RADAR_MAX_DISTANCE = 100;
-export const DEFAULT_RADAR_MAX_DISTANCE = 14;
+export const DEFAULT_RADAR_MAX_DISTANCE = 20;
 
-/** 软件侧上限，cm。默认 1.2 m，比模块那 1.4 m 再收一点，站着的人还在里面。 */
+/**
+ * 软件侧上限，cm。默认 1.45 m：本机实测本人静坐 140–145、空椅 152、同事位 160，
+ * 145 夹在中间；0–19 cm 的近场伪影在雷达层就会被丢掉。
+ */
 export const MIN_RADAR_MAX_CM = 30;
 export const MAX_RADAR_MAX_CM = 1000;
-export const DEFAULT_RADAR_MAX_CM = 120;
+export const DEFAULT_RADAR_MAX_CM = 145;
+
+/** 面板提示用的推荐值；现在和默认值一致。 */
+export const RECOMMENDED_RADAR_MAX_DISTANCE = DEFAULT_RADAR_MAX_DISTANCE;
+export const RECOMMENDED_RADAR_MAX_CM = DEFAULT_RADAR_MAX_CM;
 
 /**
  * 从最后一次看见近处的人到认定雷达说没人的总时长，默认 35 = 硬件 30 + 软件确认 5。

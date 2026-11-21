@@ -95,7 +95,7 @@ interface PanelView {
   sections: Array<{
     id: string;
     title: string;
-    fields: Array<{ key: string; kind: string; value: unknown; suffix?: string; badge?: string }>;
+    fields: Array<{ key: string; kind: string; value: unknown; suffix?: string; hint?: string; badge?: string }>;
     note?: string;
     status?: RadarView;
   }>;
@@ -602,6 +602,8 @@ describe('world', () => {
       'radarPort', 'radarMaxDistance', 'radarMaxCm', 'radarAbsentSeconds', 'radarBackSeconds',
       'radarPassByNotify', 'radarQuietSeconds',
     ]);
+    expect(radar.fields.find((field) => field.key === 'radarMaxDistance')?.hint).toContain('20');
+    expect(radar.fields.find((field) => field.key === 'radarMaxCm')?.hint).toContain('145');
     await world.stop();
   });
 

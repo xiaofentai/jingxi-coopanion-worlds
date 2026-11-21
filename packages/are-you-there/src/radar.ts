@@ -30,6 +30,19 @@ export const RADAR_FAR_LIMIT_MS = 5 * 60_000;
  */
 export const RADAR_TRUST_MS = 5 * 60_000;
 
+/**
+ * 低于这个距离的帧是近场伪影，不当作「有人在桌前」。
+ *
+ * 实测：人走开后在旁边动作稍大会冒出 `distance:0`，那是手/桌沿进入近场，不是真的有人贴在传感器上。
+ * 这些帧只证明串口还活着，不能刷新 lastPresentAt，否则会把「离开」误撤销成「回来」。
+ */
+export const MIN_VALID_RADAR_CM = 20;
+
+/** 近场 0 cm 这类帧不可用于判定，但仍算串口有数据。 */
+export function radarCmUsable(cm: number): boolean {
+  return Number.isFinite(cm) && cm >= MIN_VALID_RADAR_CM;
+}
+
 /** 两帧之间隔了这么久，当作休眠后重新开始，清空这段连接里的旧读数。 */
 const SESSION_GAP_MS = 60_000;
 
@@ -172,6 +185,7 @@ export function decideRadar(
   if (!reading.linked) return null;
   if (reading.at === 0 || now - reading.at > RADAR_STALE_MS) return null;
   if (reading.farSince !== null && now - reading.farSince >= RADAR_FAR_LIMIT_MS) return null;
+  if (reading.cm !== null && !radarCmUsable(reading.cm)) return null;
   if (!reading.sawNear || reading.lastPresentAt === null) return null;
 
   const absentMs = now - reading.lastPresentAt;
@@ -325,6 +339,11 @@ export class RadarTracker implements RadarSource {
         this.lastWasPresent = false;
         return;
       case 'present': {
+        if (!radarCmUsable(line.cm)) {
+          // 近场伪影：只更新最后收帧时间，证明链路还活着；不动任何有人/无人的判定状态。
+          this.reading = { ...this.reading, at: now, connectedAt: this.reading.connectedAt ?? now };
+          return;
+        }
         const maxCm = this.opts.maxCm?.() ?? 0;
         const near = maxCm <= 0 || line.cm <= maxCm;
         // 距离在上限之外的帧不算「有人在桌前」，但也不抹掉刚才见到的近处的人：
