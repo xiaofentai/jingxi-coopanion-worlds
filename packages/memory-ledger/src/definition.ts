@@ -9,7 +9,7 @@ export const MEMORY_LEDGER: WorldDefinition<MemoryLedgerConfigSection> = {
   defaults: () => ({ ...MEMORY_LEDGER_DEFAULTS }),
   configOptions: () => [],
   // `ctx.cfg` 是活的配置段，规则与目录每次构建前缀时现读
-  create: (ctx) => new MemoryLedgerWorld({ cfg: ctx.cfg, botDir: ctx.botDir, timezone: ctx.timezone, dataDir: ctx.dataDir }),
+  create: (ctx) => new MemoryLedgerWorld({ cfg: ctx.cfg, botDir: ctx.botDir, timezone: ctx.timezone }),
   describe: {
     tools: describeTools(LEDGER_TOOL_DECLS, {
       ml_check: {
@@ -41,9 +41,21 @@ export const MEMORY_LEDGER: WorldDefinition<MemoryLedgerConfigSection> = {
         en: 'Merges several blocks of one file into one, losing no entry (counts are checked). For tidying `games/*`: the same role across games becomes one block. Files that feed the prefix may not be merged.',
       },
       ml_block: {
-        zh: '对整块做四件事：view 看原文（按条编号，不用读整份文件）、write 用新正文重写整块、delete 整块删掉（不进归档）、rename 只改标题。',
-        en: 'Four things on a whole block: view its text (numbered, no need to read the file), write a new body over it, delete it (nothing kept), rename its heading.',
+        zh: '对整块做四件事：view 看原文（按条编号，不用读整份文件）、write 用新正文重写整块（一行一件的清单块不支持）、delete 整块删掉（不进归档）、rename 只改标题。',
+        en: 'Four things on a whole block: view its text (numbered, no need to read the file), write a new body over it (not for one-entry-per-line lists), delete it (nothing kept), rename its heading.',
       },
     }),
+    // 预激活和游戏路由都用它推事件；声明出来，宿主才知道这个 type 是插件发的。
+    // 和 are-you-there / memory-backup 一样用 flush（这版宿主不认 piggyback）。
+    events: [
+      {
+        type: `${MEMORY_LEDGER_ID}.prime`,
+        description: {
+          zh: '记忆树网递来的一段旧记忆：可能是替她想起的旧事，或开局时按身份取出的经验。不是对方刚说的话，不用回这条。',
+          en: 'A recalled note or game guidance from Memory Graph: not something the person just said; no reply needed.',
+        },
+        trigger: 'flush',
+      },
+    ],
   },
 };

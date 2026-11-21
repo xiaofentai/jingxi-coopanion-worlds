@@ -167,7 +167,7 @@ test('认不出身份时：读局 + 一份块目录，让她自己挑', () => {
     doc.blocks,
     null,
   );
-  assert.match(out.text, /身份：（还没发牌）/);
+  assert.match(out.text, /身份：（这局拿不到身份，下面给目录你自己挑）/);
   assert.match(out.text, /还有这些块/);
   assert.match(out.text, /- 当狼 · 1 条 · b/);
   assert.match(out.text, /- 当民 · 1 条 · c/);

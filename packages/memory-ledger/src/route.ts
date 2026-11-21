@@ -221,7 +221,7 @@ export function buildInjection(
 ): Injection {
   const readBlock = pickBlock(blocks, '读局');
   const roleBlock = roleName ? pickBlock(blocks, roleName) : null;
-  const who = state.role ? `${state.role}${roleName ? ` → ${roleName}` : ''}` : '（还没发牌）';
+  const who = state.role ? `${state.role}${roleName ? ` → ${roleName}` : ''}` : '（这局拿不到身份，下面给目录你自己挑）';
   const name = file.replace(/^games\//, '').replace(/\.md$/, '');
   const out: string[] = [`你在打${name}（family: ${state.family}），身份：${who}。`];
 

@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { parseDoc } from '../src/parse.ts';
-import { appendBullets, deleteInBlock, editInBlock, ensureDayBlock, findBlocks, handleOf, mergeBlocks, moveBlock, tidy, withoutBlock } from '../src/write.ts';
+import { appendBullets, deleteInBlock, editInBlock, ensureDayBlock, findBlocks, handleOf, mergeBlocks, moveBlock, rewriteBlock, tidy, withoutBlock } from '../src/write.ts';
 
 const CJ = [
   '# 超近期（只留最近 2 天）',
@@ -75,6 +75,34 @@ test('特殊块不搬', () => {
   const result = moveBlock(cj(), '还挂着', jq());
   assert.ok('error' in result);
   assert.match(result.error, /特殊块/);
+});
+
+const LIST = [
+  '# 大事记',
+  '',
+  '一行一件的旧事。',
+  '',
+  '- **2026-11-07**：第一条。',
+  '- **2026-11-08**：第二条。',
+  '',
+].join('\n');
+const listDoc = () => parseDoc(LIST, '大事记.md', 2026, '2026-11-10');
+
+test('大事记清单块：改第一条不会漏，也不会留下旧正文', () => {
+  const result = editInBlock(listDoc(), '大事记', '第一条', '改过的第一条');
+  assert.ok(!('error' in result));
+  const after = parseDoc(result.text, '大事记.md', 2026, '2026-11-10');
+  assert.match(after.text, /：改过的第一条。/);
+  assert.doesNotMatch(after.text, /：第一条。/);
+  assert.match(after.text, /：第二条。/);
+  assert.equal(after.blocks[0]!.entries.length, 2);
+});
+
+test('大事记清单块：整块重写被拒并指路，不偷偷留下第一条', () => {
+  const result = rewriteBlock(listDoc(), '大事记', '- 新的\n- 内容');
+  assert.ok('error' in result);
+  assert.match(result.error, /不能整块重写/);
+  assert.match(result.hint!, /ml_add/);
 });
 
 test('删掉最后一块后文件依然干净', () => {

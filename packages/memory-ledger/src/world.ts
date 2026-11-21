@@ -16,12 +16,14 @@ import type { ToolDef, World, WorldHost, WorldWebUiDecl } from 'cortico/core/typ
 import { buildBoard } from './board.ts';
 import { ensureArchiveFile } from './archive.ts';
 import {
-  DEFAULT_ARCHIVE_FILE, DEFAULT_PAST_FILE, DEFAULT_TODAY_FILE,
   MEMORY_LEDGER_ID, memoryLedgerConfigGroup, splitList, type MemoryLedgerConfigSection,
 } from './config.ts';
-import { clampSettings, readSettings, rulesText, writeSettings, type LedgerSettings } from './settings.ts';
+import {
+  archiveFileOf, archiveFor, clampSettings, pastFileOf, readSettings,
+  rulesText, todayFileOf, writeSettings, type LedgerSettings,
+} from './settings.ts';
 import { readRuleDocs } from './audit.ts';
-import { PRIME_LIMIT, PRIME_PER_DAY, coolEnough, primeHits, primeKey, primeText, withinDailyBudget } from './prime.ts';
+import { PRIME_LIMIT, coolEnough, primeHits, primeKey, primeText, withinDailyBudget } from './prime.ts';
 import { readRecent, type RecentSay } from './recent.ts';
 import { recall } from './recall.ts';
 import { buildInjection, detectGame, parseFamilyMap, type LogItem } from './route.ts';
@@ -45,13 +47,19 @@ const ENV_PROMPT_FILES: Record<TextLanguage, string> = {
  */
 const PRIME_TICK_MS = 30_000;
 
+/**
+ * 拿不到身份时最多等几拍再送目录档。
+ *
+ * 3 拍 ≈ 90 秒：客厅开局后身份通常立刻就有，等一等是为了不让「还没发牌」被当成
+ * 「这平台不给身份」。一局只在最后送一次，不会目录档和角色档各送一遍。
+ */
+const ROUTE_BLIND_TICKS = 3;
+
 export interface MemoryLedgerWorldOptions {
   /** 配置段 `worlds.memory-ledger`，每次使用时读取，所以改完不用重启。 */
   cfg: MemoryLedgerConfigSection;
-  /** 部署目录，相对目录以它为准。 */
+  /** 部署目录，相对目录以它为准；config.json 也在这里。 */
   botDir: string;
-  /** 数据目录，索引规则设置放在这里。 */
-  dataDir: string;
   /** 卡抬头的时区。 */
   timezone: string;
 }
@@ -66,6 +74,10 @@ export class MemoryLedgerWorld implements World {
   private primedFor = '';
   /** 每一块上次被推的时间。重启会丢，最坏是重启后再推一次同一块。 */
   private readonly primedAt = new Map<string, number>();
+  /** 记下的对局：重启会丢，首拍只建状态不推，避免把上一局的残留再念一遍。 */
+  private routeStarted = false;
+  /** 身份还没拿到时，已经等了几拍。目录档只在等够之后才送。 */
+  private readonly routeBlind = new Map<string, number>();
   private priming = false;
   /** 他刚说的那句、那一轮她查过没有。查没查只有我们知道——工具是我们的。 */
   private activeAsk: { at: number; text: string; checkedAt: number | null } | null = null;
@@ -84,13 +96,13 @@ export class MemoryLedgerWorld implements World {
   private lastNote = '';
 
   private readonly opts: MemoryLedgerWorldOptions;
-  /** 三份索引规则，来自独立设置文件；配置页里的旧规则只在首次迁移时读。 */
+  /** 三份索引规则，和开关一起住在 config.json 的 worlds.memory-ledger 段里。 */
   private settings: LedgerSettings;
 
   // 不用参数属性：Node 的 strip-only 模式不认这种写法，测试就 import 不了这个文件
   constructor(opts: MemoryLedgerWorldOptions) {
     this.opts = opts;
-    this.settings = readSettings(opts.dataDir, opts.cfg);
+    this.settings = readSettings(opts.botDir, opts.cfg);
   }
 
   private get cfg(): MemoryLedgerConfigSection {
@@ -118,9 +130,9 @@ export class MemoryLedgerWorld implements World {
     return this.languageCache.value;
   }
 
-  /** 空值落在部署目录的 `workspace` 上。 */
+  /** 记忆目录来自独立设置；空值落在部署目录的 `workspace` 上。 */
   private boardFolder(): string {
-    const raw = this.cfg.folder.trim() || 'workspace';
+    const raw = (this.settings.folder || '').trim() || 'workspace';
     return isAbsolute(raw) ? resolve(raw) : resolve(join(this.opts.botDir, raw));
   }
 
@@ -136,15 +148,15 @@ export class MemoryLedgerWorld implements World {
       stamp: stamp(this.opts.timezone),
       today: day,
       language,
-      archiveFile: this.cfg.archiveFile ?? '',
+      archiveFile: archiveFileOf(this.settings),
     });
     // 开口前召回是实验项：开关关着时这个变量是空串，模板里那一行自然消失
-    const hint = this.cfg.recallOnSpeak ? memoryLedgerText(language).hintRecall : '';
-    // 三层各自的文件名：改设置这里就跟着变，提示词里不再写死
+    const hint = this.settings.recallOnSpeak ? memoryLedgerText(language).hintRecall : '';
+    // 三层文件名由三张卡推导：改名只改设置页一处
     const layers = memoryLedgerText(language).layers(
-      this.layerFile('todayFile', DEFAULT_TODAY_FILE),
-      this.layerFile('pastFile', DEFAULT_PAST_FILE),
-      this.layerFile('archiveFile', DEFAULT_ARCHIVE_FILE),
+      todayFileOf(this.settings),
+      pastFileOf(this.settings),
+      archiveFileOf(this.settings),
     );
     // 心跳：不提供内容，只提供「系统还活着」。份数掉了或覆盖日期停住，就是有东西没读到。
     const health = memoryLedgerText(language).health(
@@ -163,11 +175,6 @@ export class MemoryLedgerWorld implements World {
     };
   }
 
-  /** 三层里某一层的文件名：配置里填了就用，空则用默认值。 */
-  private layerFile(key: 'todayFile' | 'pastFile' | 'archiveFile', fallback: string): string {
-    return (this.cfg[key] ?? '').trim() || fallback;
-  }
-
   /** 写入口：只碰块，不碰行；每次调用现读文件，所以配置改了不用重启。 */
   tools(): ToolDef[] {
     return createLedgerTools({
@@ -175,9 +182,10 @@ export class MemoryLedgerWorld implements World {
       rules: () => rulesText(this.settings),
       backupDir: () => join(this.opts.botDir, 'data', 'memory-ledger'),
       today: () => today(this.opts.timezone),
-      todayFile: () => this.cfg.todayFile ?? '',
-      pastFile: () => this.cfg.pastFile ?? '',
-      archiveFile: () => this.cfg.archiveFile ?? '',
+      todayFile: () => todayFileOf(this.settings),
+      pastFile: () => pastFileOf(this.settings),
+      archiveFile: () => archiveFileOf(this.settings),
+      archiveFor: (file, date) => archiveFor(this.settings, file, date),
       recent: () => this.recentSay(),
       prime: () => this.primeStatus(),
       ask: () => this.askStatus(),
@@ -233,22 +241,25 @@ export class MemoryLedgerWorld implements World {
   /**
    * 每拍看一眼「她是不是刚进了一局」。
    *
-   * 三条边界都写这儿：
+   * 四条边界都写这儿：
+   * - 首拍只建状态：重启后日志里可能还留着上一局的牌桌，不补发；
    * - 认局靠 `session-main.jsonl`（事件库里没有 ownRole）；
-   * - 发牌之前不推（`ownRole` 还是 null）；
-   * - 同一局只推一次，否则每 30 秒念一遍。
+   * - 身份没拿到时先等几拍（约 90 秒），再退到目录档；期间拿到身份就送角色档；
+   * - 同一局只送一次，否则每 30 秒念一遍。
    */
   private async routeOnce(): Promise<void> {
-    if (!this.cfg.gameRoute) return;
+    if (!this.settings.gameRoute) return;
+    // 重启不补发：第一拍只把状态建起来，哪怕日志里残留着一局进行中的牌桌
+    if (!this.routeStarted) {
+      this.routeStarted = true;
+      this.routeNote = '首拍只记状态，不补发';
+      return;
+    }
     try {
       const items = this.readSessionItems();
       const state = detectGame(items);
       if (!state) {
         this.routeNote = '不在对局';
-        return;
-      }
-      if (!state.role) {
-        this.routeNote = `${state.family} 还没发牌`;
         return;
       }
       if (this.routedGames.has(state.gameId)) {
@@ -263,15 +274,30 @@ export class MemoryLedgerWorld implements World {
         return;
       }
 
-      const roleName = found.map.roles[state.role.toLowerCase()] ?? null;
+      // 身份还没拿到：先等几拍。拿到身份就走角色档；等够了还拿不到才退到目录档。
+      if (!state.role) {
+        const waited = (this.routeBlind.get(state.gameId) ?? 0) + 1;
+        this.routeBlind.set(state.gameId, waited);
+        if (waited < ROUTE_BLIND_TICKS) {
+          this.routeNote = `${state.family} 还没发牌（等 ${waited}/${ROUTE_BLIND_TICKS} 拍）`;
+          return;
+        }
+        this.routeNote = `${state.family} 还没发牌，等够了——退到目录档`;
+      }
+
+      const roleName = state.role ? (found.map.roles[state.role.toLowerCase()] ?? null) : null;
       const injected = buildInjection(state, found.rel, found.doc.blocks, roleName);
       const sent = await this.pushPrime(injected.text);
       if (!sent) {
         this.routeNote = '推送失败（宿主的 pushDeferred 没接住）';
         return;
       }
+      // 送成功才记账：失败时下一拍还能重试，不会白白吃掉这一局的唯一名额
       this.routedGames.add(state.gameId);
-      this.routeNote = `推了 ${found.rel}（${state.family} / ${state.role}）`;
+      this.routeBlind.delete(state.gameId);
+      this.routeNote = state.role
+        ? `推了 ${found.rel}（${state.family} / ${state.role}）`
+        : `推了目录档（${state.family}，始终没拿到身份）`;
     } catch (error) {
       this.routeNote = `出错：${error instanceof Error ? error.message : String(error)}`;
     }
@@ -331,7 +357,7 @@ export class MemoryLedgerWorld implements World {
 
   /** 路由的状态，`ml_check` 用一行说清楚它活着没有。 */
   routeStatus(): { on: boolean; note: string; games: number } {
-    return { on: this.cfg.gameRoute, note: this.routeNote, games: this.routedGames.size };
+    return { on: this.settings.gameRoute, note: this.routeNote, games: this.routedGames.size };
   }
 
   /**
@@ -344,12 +370,12 @@ export class MemoryLedgerWorld implements World {
   primeStatus(): { on: boolean; lastTick: number | null; pushed: number; today: number; cap: number; note: string } {
     const day = today(this.opts.timezone);
     return {
-      on: this.cfg.preactivate,
+      on: this.settings.preactivate,
       lastTick: this.lastTickAt,
       pushed: this.pushed,
       // 今天还没跑过拍时，pushedDay 还是昨天，那时今天就是 0
       today: this.pushedDay === day ? this.pushedToday : 0,
-      cap: this.cfg.preactivatePerDay ?? PRIME_PER_DAY,
+      cap: this.settings.preactivatePerDay,
       note: this.lastNote,
     };
   }
@@ -440,7 +466,7 @@ export class MemoryLedgerWorld implements World {
     // 不管预激活开不开，都要盯「他刚说的那句」——这是判断她查没查的另一半
     this.noteAsk();
     // 每一步的出口都留一句话，`ml_check` 直接报它——不然「没推」到底是哪一步卡住，只能猜
-    if (!this.cfg.preactivate) {
+    if (!this.settings.preactivate) {
       this.lastNote = '开关关着';
       return;
     }
@@ -477,13 +503,13 @@ export class MemoryLedgerWorld implements World {
         this.pushedDay = day;
         this.pushedToday = 0;
       }
-      const cap = this.cfg.preactivatePerDay ?? PRIME_PER_DAY;
+      const cap = this.settings.preactivatePerDay;
       if (!withinDailyBudget(this.pushedToday, cap)) {
         this.primedFor = key;
         this.lastNote = `今天的名额用完了（${cap} 次）`;
         return;
       }
-      const docs = readRuleDocs(this.boardFolder(), rulesText(this.cfg), Number(day.slice(0, 4)), day)
+      const docs = readRuleDocs(this.boardFolder(), rulesText(this.settings), Number(day.slice(0, 4)), day)
         .map(({ doc }) => doc);
       // 不认日期：事件文本自带「[11-13 周五 23:03]」，认了就会每次偏向今天
       // 比到块那一层：日块拿首行（那一天的一句话），大事记按条（每条本来就是一行一件事）
@@ -552,7 +578,7 @@ export class MemoryLedgerWorld implements World {
 
   /** 启用时先把归档文件建出来：设置页的选择器要能选到它，第一次 `ml_delete(…, keep=true)` 也不该失败。 */
   private ensureArchive(): void {
-    ensureArchiveFile(this.boardFolder(), this.cfg.archiveFile ?? '');
+    ensureArchiveFile(this.boardFolder(), archiveFileOf(this.settings));
   }
 
   async stop(): Promise<void> {
@@ -565,24 +591,72 @@ export class MemoryLedgerWorld implements World {
     this.host = null;
   }
 
-  /** 「索引规则」面板：三份固定文件，每份只问天数和条数。 */
+  /** 独立「设置」页：大事记 / 近期 / 超近期各一张卡，公共参数另放一张。 */
   private panelSections(language: Language): Array<Record<string, unknown>> {
     const t = memoryLedgerText(language);
-    return [{
-      id: 'rules',
-      title: t.panel.title,
-      description: t.panel.description,
-      fields: this.settings.rules.flatMap((rule, index) => [
+    const c = t.config;
+    const s = this.settings;
+    const ruleSections = s.rules.map((rule, index) => {
+      const name = t.panel.ruleTitle(index);
+      const fields: Array<Record<string, unknown>> = [
         {
-          key: `days${index}`, label: t.panel.days(rule.file), kind: 'int',
+          key: `file${index}`, label: t.panel.file(name), kind: 'text',
+          value: rule.file, hint: t.panel.fileHint,
+        },
+        {
+          key: `days${index}`, label: t.panel.days(name), kind: 'int',
           value: rule.days, min: 0, max: 3650, suffix: t.panel.daysSuffix, hint: t.panel.daysHint,
         },
         {
-          key: `cap${index}`, label: t.panel.cap(rule.file), kind: 'int',
+          key: `cap${index}`, label: t.panel.cap(name), kind: 'int',
           value: rule.cap, min: 0, max: 10000, suffix: t.panel.capSuffix, hint: t.panel.capHint,
         },
-      ]),
-    }];
+      ];
+      // 超近期不归档；其余两份各自填自己的归档目标
+      if (index !== 2) {
+        fields.push({
+          key: `archive${index}`, label: t.panel.archive(name), kind: 'text',
+          value: rule.archive, hint: t.panel.archiveHint,
+        });
+      }
+      return {
+        id: `rule${index}`,
+        title: name,
+        description: t.panel.ruleDescription(index),
+        fields,
+      };
+    });
+    return [
+      ...ruleSections,
+      {
+        id: 'common',
+        title: t.panel.commonTitle,
+        description: t.panel.commonDescription,
+        fields: [
+          {
+            key: 'folder', label: c.folder.title, kind: 'text',
+            value: s.folder, hint: c.folder.description,
+          },
+          {
+            key: 'recallOnSpeak', label: c.recallOnSpeak.title, kind: 'bool',
+            value: s.recallOnSpeak, hint: c.recallOnSpeak.description,
+          },
+          {
+            key: 'preactivate', label: c.preactivate.title, kind: 'bool',
+            value: s.preactivate, hint: c.preactivate.description,
+          },
+          {
+            key: 'preactivatePerDay', label: c.preactivatePerDay.title, kind: 'int',
+            value: s.preactivatePerDay, min: 0, max: 20,
+            suffix: t.panel.timesSuffix, hint: c.preactivatePerDay.description,
+          },
+          {
+            key: 'gameRoute', label: c.gameRoute.title, kind: 'bool',
+            value: s.gameRoute, hint: c.gameRoute.description,
+          },
+        ],
+      },
+    ];
   }
 
   private panelPayload(language: Language): Record<string, unknown> {
@@ -599,17 +673,38 @@ export class MemoryLedgerWorld implements World {
     args: unknown[],
     language: Language,
   ): Record<string, unknown> {
-    if (panel !== 'rules') throw new Error(`no such panel: ${panel}`);
+    if (panel !== 'settings') throw new Error(`no such panel: ${panel}`);
     if (method === 'status') return this.panelPayload(language);
     if (method === 'save') {
       const incoming = (args?.[0] ?? {}) as Record<string, unknown>;
-      const rules = this.settings.rules.map((rule, index) => ({
-        ...rule,
-        days: typeof incoming[`days${index}`] === 'number' ? incoming[`days${index}`] as number : rule.days,
-        cap: typeof incoming[`cap${index}`] === 'number' ? incoming[`cap${index}`] as number : rule.cap,
-      }));
-      this.settings = clampSettings({ rules }, this.settings);
-      writeSettings(this.opts.dataDir, this.settings);
+      const text = (key: string, fallback: string) =>
+        typeof incoming[key] === 'string' && (incoming[key] as string).trim()
+          ? (incoming[key] as string).trim()
+          : fallback;
+      const number = (key: string, fallback: number) =>
+        typeof incoming[key] === 'number' && Number.isFinite(incoming[key] as number)
+          ? incoming[key] as number
+          : fallback;
+      const bool = (key: string, fallback: boolean) =>
+        typeof incoming[key] === 'boolean' ? incoming[key] as boolean : fallback;
+      const next: LedgerSettings = {
+        folder: text('folder', this.settings.folder),
+        recallOnSpeak: bool('recallOnSpeak', this.settings.recallOnSpeak),
+        preactivate: bool('preactivate', this.settings.preactivate),
+        preactivatePerDay: number('preactivatePerDay', this.settings.preactivatePerDay),
+        gameRoute: bool('gameRoute', this.settings.gameRoute),
+        rules: this.settings.rules.map((rule, index) => ({
+          file: text(`file${index}`, rule.file),
+          days: number(`days${index}`, rule.days),
+          cap: number(`cap${index}`, rule.cap),
+          // 归档允许清空；clampSettings 会区分「没提交」和「提交空串」
+          archive: typeof incoming[`archive${index}`] === 'string'
+            ? (incoming[`archive${index}`] as string).trim().slice(0, 240)
+            : rule.archive,
+        })),
+      };
+      this.settings = clampSettings(next, this.settings);
+      writeSettings(this.opts.botDir, this.settings);
       return this.panelPayload(language);
     }
     throw new Error(`no such method: ${panel}.${method}`);
@@ -621,7 +716,7 @@ export class MemoryLedgerWorld implements World {
     return {
       label: t.label,
       panels: [{
-        id: 'rules',
+        id: 'settings',
         title: t.panel.title,
         description: t.panel.description,
         getMethods: ['status', 'save'],

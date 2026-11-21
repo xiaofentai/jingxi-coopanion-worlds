@@ -2,7 +2,7 @@
  * 体检：只读，把三份流水的结构打出来——每份几块、日期到哪、缺哪天、哪天重复。
  *
  * 用法：node scripts/check.ts <workspace 目录> [config.json]
- * 规则从 `<data>/memory-ledger-settings.json` 读；文件还没建时，从 config.json 的旧规则迁一次。
+ * 规则和开关一起放在 config.json 的 `worlds.memory-ledger.settings` 段；没建过时从旧规则迁一次。
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -16,7 +16,7 @@ const config = JSON.parse(readFileSync(configPath, 'utf8')) as {
   worlds?: Record<string, Partial<MemoryLedgerConfigSection>>;
 };
 const cfg = { ...config.worlds?.['memory-ledger'] } as MemoryLedgerConfigSection;
-const rules = rulesText(readSettings(join(dirname(configPath), 'data'), cfg));
+const rules = rulesText(readSettings(dirname(configPath), cfg));
 if (!rules) {
   console.error(`没有可用的索引规则：${configPath}`);
   process.exit(1);

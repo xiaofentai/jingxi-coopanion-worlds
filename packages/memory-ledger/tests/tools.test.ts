@@ -551,12 +551,54 @@ test('ml_move 给了 text 又不写 to：按层压进「再往前那份」', () 
   });
 });
 
-test('ml_move 没给 text 又不写 to：拒绝，不替你猜归档到哪份', () => {
+test('备份失败时照写，但回执明说没留底，让桌宠报给用户', () => {
+  const root = mkdtempSync(join(tmpdir(), 'ledger-backup-fail-'));
+  try {
+    const folder = join(root, 'workspace');
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, '超近期.md'), CJ, 'utf8');
+    // backupDir 指向一个文件：mkdirSync 会抛，备份必定失败
+    const blocker = join(root, 'blocker');
+    writeFileSync(blocker, 'x', 'utf8');
+    const tools = createLedgerTools({
+      folder: () => folder,
+      rules: () => RULES,
+      backupDir: () => blocker,
+      today: () => '2026-11-10',
+      todayFile: () => '超近期.md',
+      pastFile: () => '近期.md',
+      archiveFile: () => '',
+    } as Parameters<typeof createLedgerTools>[0]);
+    const receipt = String(tools.find((t) => t.name === 'ml_add')?.handler({
+      block: '11-09', text: '- 备份失败也要写进去。',
+    } as never));
+    assert.match(receipt, /备份失败/);
+    assert.match(receipt, /由他决定接着写还是先查原因/);
+    assert.match(readFileSync(join(folder, '超近期.md'), 'utf8'), /备份失败也要写进去/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('ml_move 没给 text 又不写 to、这份也没配归档：拒绝，不替你猜', () => {
   sandbox((box) => {
     const before = box.read('超近期.md');
     const receipt = box.run('ml_move', { from: '超近期.md', block: '11-09' });
     assert.match(receipt, /要写清 to/);
     assert.equal(box.read('超近期.md'), before);
+  }, '超近期.md', RULES, '2026-11-10', { archiveFor: () => '' });
+});
+
+test('ml_move 没写 to 时按来源文件的归档模板自动归位，跨月用块自己的日期', () => {
+  sandbox((box) => {
+    const receipt = box.run('ml_move', { from: '近期.md', block: '11-07' });
+    assert.match(receipt, /archive\/近期-2026-11\.md/);
+    assert.match(receipt, /按这份文件的归档设置自动归位/);
+    assert.doesNotMatch(box.read('近期.md'), /## 11-07/);
+    assert.match(box.read('archive/近期-2026-11.md'), /## 11-07/);
+  }, '超近期.md', RULES, '2026-12-01', {
+    archiveFor: (file: string, date: string) =>
+      file === '近期.md' ? `archive/近期-${date.slice(0, 7)}.md` : '',
   });
 });
 

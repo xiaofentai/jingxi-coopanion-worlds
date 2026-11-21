@@ -1,13 +1,13 @@
 /**
- * 「索引规则」面板：三份流水，各填「留几天 / 最多几条」。
+ * 「设置」面板：目录、文件名、索引天数、触发开关。
  *
  * 手写 ESM，不经打包；控制台用浏览器原生 import() 加载。字段、标签、单位都由
- * World 算好（status），这里只负责画和把改动存回去。
+ * World 算好（status），这里只负责画和把改动存回去。配置页只剩启用开关。
  */
 const SAVE_DEBOUNCE_MS = 600;
 const POLL_MS = 3000;
 
-const rulesPanel = {
+const settingsPanel = {
   mount(ctx) {
     const ui = ctx.ui;
     const root = ctx.root;
@@ -59,31 +59,47 @@ const rulesPanel = {
       const label = ui.h('div', 'companion-label', field.label);
       const control = ui.h('div', 'companion-control');
       const line = ui.h('div', 'configline');
-      const wrap = ui.h('div', 'tfield');
-      const input = ui.input({
-        type: 'number',
-        value: field.value === undefined || field.value === null ? '' : String(field.value),
-        onInput: () => { message.textContent = ''; },
-        onChange: () => queueSave(),
-      });
-      if (field.min !== undefined) input.min = String(field.min);
-      if (field.max !== undefined) input.max = String(field.max);
-      wrap.append(input);
-      line.append(wrap);
-      if (field.suffix) line.append(ui.h('span', 'tunit', field.suffix));
       control.append(line);
+
+      if (field.kind === 'bool') {
+        const box = ui.checkbox('', { checked: !!field.value, onChange: () => queueSave() });
+        box.input.setAttribute('aria-label', field.label);
+        line.classList.add('companion-switchbox');
+        line.append(box.el);
+        readers.set(field.key, () => box.checked);
+        writers.set(field.key, (value) => box.setChecked(!!value));
+      } else {
+        const wrap = ui.h('div', 'tfield');
+        const input = ui.input({
+          type: field.kind === 'int' ? 'number' : 'text',
+          value: field.value === undefined || field.value === null ? '' : String(field.value),
+          onInput: () => { message.textContent = ''; },
+          onChange: () => queueSave(),
+        });
+        if (field.kind === 'int') {
+          if (field.min !== undefined) input.min = String(field.min);
+          if (field.max !== undefined) input.max = String(field.max);
+        }
+        wrap.append(input);
+        line.append(wrap);
+        if (field.suffix) line.append(ui.h('span', 'tunit', field.suffix));
+        readers.set(field.key, () => {
+          if (field.kind !== 'int') return input.value;
+          if (input.value === '') return undefined;
+          const value = Number(input.value);
+          return Number.isFinite(value) ? value : undefined;
+        });
+        writers.set(field.key, (value) => {
+          // 正在敲的框不要回写：轮询每 3 秒一次，回写会吞掉光标和没保存的字。
+          // 失焦时 change 会存盘，之后再对齐就不打架（见设置页交接 4.7）。
+          if (input.ownerDocument && input.ownerDocument.activeElement === input) return;
+          const text = value === undefined || value === null ? '' : String(value);
+          if (input.value !== text) input.value = text;
+        });
+      }
+
       if (field.hint) control.append(ui.h('p', 'home-note', field.hint));
       row.append(label, control);
-
-      readers.set(field.key, () => {
-        if (input.value === '') return undefined;
-        const value = Number(input.value);
-        return Number.isFinite(value) ? value : undefined;
-      });
-      writers.set(field.key, (value) => {
-        const text = value === undefined || value === null ? '' : String(value);
-        if (input.value !== text) input.value = text;
-      });
       return row;
     };
 
@@ -123,7 +139,7 @@ const rulesPanel = {
       try {
         payload = await ctx.invoke('status');
       } catch (error) {
-        console.error('[memory-ledger] could not read the rules', error);
+        console.error('[memory-ledger] could not read settings', error);
         return;
       }
       apply(payload);
@@ -134,4 +150,4 @@ const rulesPanel = {
   },
 };
 
-export default { panels: { rules: rulesPanel } };
+export default { panels: { settings: settingsPanel } };

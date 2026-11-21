@@ -353,6 +353,14 @@ export function rewriteBlock(doc: Doc, handle: string, body: string): RewriteRes
   if (!body.trim()) {
     return { error: '新的正文是空的：那会把整块清空。真要清掉用 ml_block(action="delete")', hint: sampleHint(block) };
   }
+  // 没有标题的清单块（大事记）：一行一件，整块重写会把几十条摊进一个动作里。
+  // 这里只收明确指路，不偷偷留下第一条旧正文（清单块的 span 没有标题那一行）。
+  if (!block.heading) {
+    return {
+      error: `${handle} 是一张清单（一行一件），不能整块重写`,
+      hint: '加一条用 ml_add，改一条用 ml_edit，删一条用 ml_delete(…, keep=true)。',
+    };
+  }
   const lines = doc.text.split('\n');
   const [start, end] = spanOf(block);
   const merged = [...lines.slice(0, start + 1), body.trim(), '', ...lines.slice(end)];
@@ -517,8 +525,11 @@ export function editInBlock(doc: Doc, handle: string, old: string, next: string)
 
   const lines = doc.text.split('\n');
   const [start, end] = spanOf(block);
-  const body = lines.slice(start + 1, end).join('\n').replace(old, next);
-  const merged = [...lines.slice(0, start + 1), ...body.split('\n'), ...lines.slice(end)];
+  // 正文起点按 bodyStartOf 算：有标题的块跳过标题行，清单块从第一条开始。
+  // 原来这里一律 start+1，清单块（大事记）的第一条会被漏掉，改完核对失败。
+  const bodyStart = bodyStartOf(block) - 1;
+  const body = lines.slice(bodyStart, end).join('\n').replace(old, next);
+  const merged = [...lines.slice(0, bodyStart), ...body.split('\n'), ...lines.slice(end)];
   return { text: tidy(merged.join('\n')) };
 }
 

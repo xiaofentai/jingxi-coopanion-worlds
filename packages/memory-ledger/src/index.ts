@@ -26,7 +26,7 @@ export { DEFAULT_MAX_AGE_MS, DEFAULT_MIN_CHARS, DEFAULT_SENDERS, pickRecent, rea
 export type { RecentOptions, RecentSay, SayEvent } from './recent.ts';
 export { PRIME_COOLDOWN_MS, PRIME_LIMIT, coolEnough, primeHits, primeKey, primeText } from './prime.ts';
 export {
-  LEDGER_RULE_FILES, SETTINGS_FILE,
+  LEDGER_RULE_FILES, SETTINGS_KEY,
   clampSettings as clampLedgerSettings, readSettings as readLedgerSettings,
   rulesText as ledgerRulesText, writeSettings as writeLedgerSettings,
 } from './settings.ts';

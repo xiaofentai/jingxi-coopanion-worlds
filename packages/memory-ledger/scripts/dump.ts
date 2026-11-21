@@ -2,7 +2,7 @@
  * 本地出卡对比的残余入口：现在只看 ledger 自己的三份索引。
  *
  * 用法：node scripts/dump.ts <workspace 目录> [config.json]
- * 规则从 `<data>/memory-ledger-settings.json` 读；整份文件已经归 memory-card，不在这里对照。
+ * 规则从 config.json 的 `worlds.memory-ledger.settings` 段读；整份文件归 memory-card，不在这里对照。
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -16,7 +16,7 @@ const config = JSON.parse(readFileSync(configPath, 'utf8')) as {
   worlds?: Record<string, Partial<MemoryLedgerConfigSection>>;
 };
 const cfg = { ...config.worlds?.['memory-ledger'] } as MemoryLedgerConfigSection;
-const rules = rulesText(readSettings(join(dirname(configPath), 'data'), cfg));
+const rules = rulesText(readSettings(dirname(configPath), cfg));
 if (!rules) {
   console.error(`没有可用的索引规则：${configPath}`);
   process.exit(1);

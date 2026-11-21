@@ -12,6 +12,7 @@ import type { ToolDef } from 'cortico/core/types.ts';
 import { audit, auditLines, folderOf, readDoc, readRuleDocs } from './audit.ts';
 import { parseRules, SOFT_RATIO } from './board.ts';
 import { DEFAULT_ARCHIVE_FILE, DEFAULT_PAST_FILE, DEFAULT_TODAY_FILE } from './config.ts';
+import { fillArchiveTemplate } from './settings.ts';
 import { extractDates, recall, type RecallHit } from './recall.ts';
 import type { RecentSay } from './recent.ts';
 import { firstLine, parseDoc, type Block, type Doc } from './parse.ts';
@@ -28,6 +29,11 @@ const BACKUP_KEEP = 30;
  * 回执里说一句，免得她以为这次改动有版本可退。
  */
 const NO_COMMIT = '（这次改动没进工作区版本历史。）';
+/** 备份失败时贴到回执末尾：让她报给用户，由人决定接着写还是先查磁盘。不静默吞、也不拦写入。 */
+const BACKUP_FAILED = '（备份失败：这份改动写进去了，但没留底。告诉用户备份失败，由他决定接着写还是先查原因。）';
+
+/** save 的返回：备份成没成。写盘本身成功才返回；写盘抛错仍向上抛。 */
+type SaveOutcome = { backupOk: boolean };
 
 export interface LedgerToolOptions {
   /** 记忆目录，绝对路径。 */
@@ -42,8 +48,10 @@ export interface LedgerToolOptions {
   todayFile: () => string;
   /** 第二层流水（那么近、但又没那么远）；`ml_move` 带新正文又不写 `to` 时压进这一份。 */
   pastFile: () => string;
-  /** `ml_delete(…, keep=true)` / `ml_move` 不给新正文又不写 `to` 时归档到哪一份；空表示 `DEFAULT_ARCHIVE_FILE`。 */
+  /** 默认归档文件；空表示 `DEFAULT_ARCHIVE_FILE`。 */
   archiveFile: () => string;
+  /** 按来源文件和那一天算归档目标；支持月份占位符。没接就用 `archiveFile`。 */
+  archiveFor?: (file: string, date: string) => string;
   /**
    * 「对方刚说的最后一句」——预激活和路由的入口。没接（比如脚本、测试）就不提供，
    * 依赖它的那几行输出自然消失，不影响别的工具。
@@ -102,10 +110,16 @@ function readText(file: string): string {
   return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
 }
 
-/** 先备份，再写临时文件，最后 rename——失败时原文件还在。 */
-function save(file: string, text: string, backupDir: string): void {
+/**
+ * 先备份，再写临时文件，最后 rename——写盘失败时原文件还在。
+ *
+ * 备份失败**不拦写入**，但要报出来：没留底这件事不能静默。回执会把这件事交给用户判断，
+ * 而不是替他决定「接着写」还是「先查磁盘」。
+ */
+function save(file: string, text: string, backupDir: string): SaveOutcome {
   // 归档文件第一次写时父目录还不存在
   mkdirSync(dirname(file), { recursive: true });
+  let backupOk = true;
   try {
     mkdirSync(backupDir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -119,11 +133,17 @@ function save(file: string, text: string, backupDir: string): void {
       }
     }
   } catch {
-    // 备份失败不阻止写入：文件本身还有 git 历史
+    backupOk = false;
   }
   const tmp = `${file}.tmp-${process.pid}`;
   writeFileSync(tmp, text, 'utf8');
   renameSync(tmp, file);
+  return { backupOk };
+}
+
+/** 回执末尾统一拼这一句：没进 git +（若失败）备份没留底。 */
+function commitLine(outcome: SaveOutcome): string {
+  return outcome.backupOk ? NO_COMMIT : `${NO_COMMIT}\n${BACKUP_FAILED}`;
 }
 
 function docOf(folder: string, rel: string, year: number, today: string): Doc | null {
@@ -372,10 +392,9 @@ function add(args: Args, opts: LedgerToolOptions): string {
   const rel = str(args, 'file') || todayFileOf(opts);
   const file = fileOf(folder, rel);
   if (!file) return `（路径不对：${rel}）`;
-  // 归档文件允许第一次就被写出来；别的文件打错名字仍然拒绝，免得多出一份
-  const archiveRel = opts.archiveFile().trim() || DEFAULT_ARCHIVE_FILE;
+  // 归档文件（含按月分文件）允许第一次就被写出来；别的文件打错名字仍然拒绝
   const fresh = !existsSync(file) || !statSync(file).isFile();
-  if (fresh && rel !== archiveRel) return `（${rel} 不存在，没有动文件。）`;
+  if (fresh && !inArchive(rel, archiveDirOf(opts))) return `（${rel} 不存在，没有动文件。）`;
 
   const blockArg = str(args, 'block');
   const line = text;
@@ -407,7 +426,7 @@ function add(args: Args, opts: LedgerToolOptions): string {
   const entryCap = entryCapOf(opts.rules(), rel);
   const entriesBefore = entriesCount(before);
   if (entryCap > 0 && entriesBefore >= entryCap) {
-    const archive = archiveRel;
+    const archive = archiveTargetOf(opts, rel, today) || DEFAULT_ARCHIVE_FILE;
     const brief = before.blocks.slice(0, 6).map((item) => `${handleOf(item)}（${item.entries.length} 条）`).join('、');
     const oldest = before.blocks.find((item) => item.kind !== 'special');
     const sample = oldest && oldest.entries.length
@@ -459,7 +478,7 @@ function add(args: Args, opts: LedgerToolOptions): string {
     return '（核对不通过：块数不对，没有写盘。）';
   }
 
-  save(file, added.text, opts.backupDir());
+  const outcome = save(file, added.text, opts.backupDir());
 
   const lines = [`已记进 ${rel}「${block}」，第 ${after.blocks.length} 块`];
   if (created.created) lines.push(`（新建了「${block}」这一块）`);
@@ -493,7 +512,7 @@ function add(args: Args, opts: LedgerToolOptions): string {
     lines.push('别处也写过同一件事（不是这一天；不一定要接上）：');
     for (const hit of related) lines.push(hitLine(hit));
   }
-  lines.push(NO_COMMIT);
+  lines.push(commitLine(outcome));
   const tip = overdueTip(opts);
   if (tip) lines.push(tip);
   return lines.join('\n');
@@ -580,11 +599,11 @@ function blockTool(args: Args, opts: LedgerToolOptions): string {
     const id = handleOf(original);
     const landed = after.blocks.find((item) => handleOf(item) === id);
     if (!landed) return '（核对不通过：改完找不到这块，没有写盘。）';
-    save(file, result.text, opts.backupDir());
+    const outcome = save(file, result.text, opts.backupDir());
     return [
       `已重写 ${rel}「${id}」：${result.beforeChars} 字 → ${result.afterChars} 字（${original.entries.length} 条 → ${landed.entries.length} 条）`,
       sizeHint(result.afterChars),
-      NO_COMMIT,
+      commitLine(outcome),
     ].filter(Boolean).join('\n');
   }
 
@@ -607,11 +626,11 @@ function blockTool(args: Args, opts: LedgerToolOptions): string {
     return '（核对不通过：块数不对，没有写盘。）';
   }
 
-  save(file, result.text, opts.backupDir());
+  const outcome = save(file, result.text, opts.backupDir());
   return [
     `已删掉 ${rel}「${result.handle}」整块：${result.entries} 条 / ${result.chars} 字，没有进归档。`,
     '（想留底的话，下次先用 ml_move 搬到归档；备份目录里还能捞回删之前的那一份。）',
-    NO_COMMIT,
+    commitLine(outcome),
   ].join('\n');
 }
 
@@ -645,11 +664,27 @@ function viewBlock(doc: Doc, handle: string, offset: number, limit = 0): string 
   return out.join('\n');
 }
 
-/** 归档目录名（默认 `archive`），用来判断一段路径是不是归档里的。 */
-function archiveDirOf(opts: LedgerToolOptions): string {
-  const rel = (opts.archiveFile().trim() || DEFAULT_ARCHIVE_FILE).replace(/\\/g, '/');
-  const cut = rel.lastIndexOf('/');
-  return cut > 0 ? rel.slice(0, cut) : '';
+/**
+ * 归档到哪一份：显式 to 优先；否则按来源文件取它的归档模板，再展开日期占位符。
+ *
+ * 接了 per-file 回调（真实世界）时，回调返回空就是「这份没配归档」，不再回落全局默认——
+ * 否则超近期也会被偷偷塞进大事记的归档。没接回调时（脚本 / 老测试）沿用全局 archiveFile。
+ */
+function archiveTargetOf(opts: LedgerToolOptions, file: string, date: string, asked = ''): string {
+  const configured = opts.archiveFor ? opts.archiveFor(file, date) : (opts.archiveFile() || DEFAULT_ARCHIVE_FILE);
+  const raw = asked || configured;
+  return raw ? fillArchiveTemplate(raw, date) : '';
+}
+
+/**
+ * 归档目录固定是 `archive/`——覆盖自检扫它、单向搬运也认它。
+ *
+ * 设置页里的归档项只允许填文件名（可带月份占位符），不允许改到别的文件夹：
+ * 同一个目录若有两个判据，搬到外面的那天就会被误报成缺口。
+ */
+const ARCHIVE_DIR = 'archive';
+function archiveDirOf(_opts: LedgerToolOptions): string {
+  return ARCHIVE_DIR;
 }
 
 /** 这段路径在不在归档目录里。 */
@@ -679,10 +714,22 @@ function move(args: Args, opts: LedgerToolOptions): string {
   if (args.text !== undefined && args.text !== null && !rewrite) {
     return '（新的正文是空的：那会把整块搬成空壳，没有动文件。）';
   }
-  // 不写 to：给了新正文就压进第二层（这条不用记路径）。没给新正文时不给默认——
-  // 归档有两份（大事记的、流水的），猜错就扔进单向的口子里，那一步必须她自己点明。
-  const to = asked || (rewrite ? (opts.pastFile().trim() || DEFAULT_PAST_FILE) : '');
-  if (!to) return '（要写清 to：没给新正文时，搬到哪一份得你定；给了 text 才默认压进「再往前那份」。）';
+  const source = docOf(folder, from, year, today);
+  if (!source) return `（读不到 ${from}）`;
+  // 日期取被搬那块自己的，不是今天：10-31 在 11-01 搬，要落进 10 月那份归档。
+  // 用 findBlocks 而不是精确 handleOf——她平时给的短句柄（11-08）本来就该认。
+  const matched = findBlocks(source, handle);
+  const blockDate = matched.find((item) => item.date)?.date || today;
+  // 不写 to：
+  //   - 给了新正文 → 压进第二层（路径确定，不用记）；
+  //   - 没给正文 → 按来源文件各自的归档模板自动归位（近期按月份、大事记按固定那份）。
+  // 只有这份文件没配归档时（超近期）才要求显式 to——归档是单向口子，不让猜。
+  const to = asked
+    ? fillArchiveTemplate(asked, blockDate)
+    : (rewrite
+      ? (opts.pastFile().trim() || DEFAULT_PAST_FILE)
+      : archiveTargetOf(opts, from, blockDate));
+  if (!to) return '（这份文件没配归档，又不给 text：要写清 to，搬到哪份得你定。）';
   if (from === to) return '（源和目标是同一份文件。）';
 
   const archiveDir = archiveDirOf(opts);
@@ -690,8 +737,6 @@ function move(args: Args, opts: LedgerToolOptions): string {
     return `（${from} 在归档里，不再搬出来——归档是单向的：可以搬进去，不搬出来。要恢复请人工从备份捞。）`;
   }
 
-  const source = docOf(folder, from, year, today);
-  if (!source) return `（读不到 ${from}）`;
   // 目标是归档里的新文件时先建：折叠第一次落盘必然是新建
   const target = docOf(folder, to, year, today)
     ?? (inArchive(to, archiveDir) ? parseDoc('# 归档\n', to, year, today) : null);
@@ -712,24 +757,27 @@ function move(args: Args, opts: LedgerToolOptions): string {
   if (rewrite && !targetAfter.blocks.some((item) => item.body.trim() === rewrite.trim())) {
     return '（核对不通过：新正文没落盘，没有写盘。）';
   }
-  save(targetFile, result.target, opts.backupDir());
+  const targetOutcome = save(targetFile, result.target, opts.backupDir());
 
   const sourceAfter = parseDoc(result.source, from, year, today);
   if (sourceAfter.blocks.length !== source.blocks.length - 1) {
     return `（目标已写入，但源核对不通过：块数 ${source.blocks.length} → ${sourceAfter.blocks.length}。请用 ml_check 看一遍。）`;
   }
-  save(sourceFile, result.source, opts.backupDir());
+  const sourceOutcome = save(sourceFile, result.source, opts.backupDir());
+  const outcome = { backupOk: targetOutcome.backupOk && sourceOutcome.backupOk };
 
-  const byLayer = asked || !rewrite ? '' : '（没写 to：按「再往前那份」压进第二层）';
+  const byLayer = asked
+    ? ''
+    : (rewrite ? '（没写 to：按「再往前那份」压进第二层）' : '（没写 to：按这份文件的归档设置自动归位）');
   if (!rewrite) {
-    return [`已把「${result.handle}」（${result.chars} 字）从 ${from} 搬到 ${to}`, byLayer, NO_COMMIT].filter(Boolean).join('\n');
+    return [`已把「${result.handle}」（${result.chars} 字）从 ${from} 搬到 ${to}`, byLayer, commitLine(outcome)].filter(Boolean).join('\n');
   }
   const ratio = Math.round((result.chars / Math.max(1, result.beforeChars)) * 100);
   return [
     `已把「${result.handle}」压缩后从 ${from} 搬到 ${to}：${result.beforeChars} 字 → ${result.chars} 字（${ratio}%）`,
     byLayer,
     ratio > 30 ? `（压得还不够：只删掉了时刻吧？${from} 那一层要的是「发生了什么、留下什么」，不是时间线。）` : '',
-    NO_COMMIT,
+    commitLine(outcome),
   ].filter(Boolean).join('\n');
 }
 
@@ -768,8 +816,8 @@ function edit(args: Args, opts: LedgerToolOptions): string {
   if (!next.includes(old) && regions.some((text) => text.includes(old))) {
     return '（核对不通过：旧内容还在，没有写盘。）';
   }
-  save(file, result.text, opts.backupDir());
-  return `已改 ${rel}「${block}」1 处，现在 ${after.text.length} 字\n${NO_COMMIT}`;
+  const outcome = save(file, result.text, opts.backupDir());
+  return `已改 ${rel}「${block}」1 处，现在 ${after.text.length} 字\n${commitLine(outcome)}`;
 }
 
 /** 改一个块的标题：只动标题那一行，条目一条不动。 */
@@ -795,12 +843,12 @@ function rename(args: Args, opts: LedgerToolOptions): string {
   const landed = after.blocks.find((item) => item.heading.trim() === hit.after);
   if (!landed) return '（核对不通过：新标题没落盘，没有写盘。）';
 
-  save(file, hit.text, opts.backupDir());
+  const outcome = save(file, hit.text, opts.backupDir());
 
   return [
     `已改标题：${hit.before}  →  ${hit.after}`,
     `（以后用「${handleOf(landed)}」找它；块里 ${landed.entries.length} 条一条没动）`,
-    NO_COMMIT,
+    commitLine(outcome),
   ].join('\n');
 }
 
@@ -841,7 +889,7 @@ function merge(args: Args, opts: LedgerToolOptions): string {
     return `（核对不通过：条目 ${entriesCount(before)} → ${entriesCount(after)}，没有写盘。）`;
   }
 
-  save(file, result.text, opts.backupDir());
+  const outcome = save(file, result.text, opts.backupDir());
 
   const landed = after.blocks.find((block) => block.heading.trim() === result.heading);
   return [
@@ -849,7 +897,7 @@ function merge(args: Args, opts: LedgerToolOptions): string {
     `（现在 ${result.chars} 字；同类教训要删重复，用 ml_delete 一条一条收）`,
     sizeHint(result.chars),
     landed ? `（以后用「${landed.title}」找它）` : '',
-    NO_COMMIT,
+    commitLine(outcome),
   ].filter(Boolean).join('\n');
 }
 
@@ -880,8 +928,8 @@ function remove(args: Args, opts: LedgerToolOptions): string {
   const after = parseDoc(result.text, rel, year, today);
   if (after.blocks.length !== before.blocks.length) return '（核对不通过：块数变了，没有写盘。）';
   if (entriesCount(after) !== entriesCount(before) - 1) return '（核对不通过：不是正好少一条，没有写盘。）';
-  save(file, result.text, opts.backupDir());
-  return `已从 ${rel}「${block}」删掉一条「${result.removed.slice(0, 30)}」，现在 ${after.text.length} 字\n${NO_COMMIT}`;
+  const outcome = save(file, result.text, opts.backupDir());
+  return `已从 ${rel}「${block}」删掉一条「${result.removed.slice(0, 30)}」，现在 ${after.text.length} 字\n${commitLine(outcome)}`;
 }
 
 /**
@@ -895,15 +943,12 @@ function forget(args: Args, opts: LedgerToolOptions): string {
   const today = opts.today();
   const year = Number(today.slice(0, 4));
   const rel = str(args, 'file') || todayFileOf(opts);
-  const toRel = str(args, 'to') || opts.archiveFile().trim() || DEFAULT_ARCHIVE_FILE;
   const block = str(args, 'block');
   const old = str(args, 'old');
   if (!block || !old) return '（要写清 block 和 old：哪一块、淘汰哪一条。）';
-  if (rel === toRel) return '（源和归档是同一份文件。）';
 
   const sourceFile = fileOf(folder, rel);
-  const targetFile = fileOf(folder, toRel);
-  if (!sourceFile || !targetFile) return '（路径不对，没有动文件。）';
+  if (!sourceFile) return '（路径不对，没有动文件。）';
   if (!existsSync(sourceFile) || !statSync(sourceFile).isFile()) return `（${rel} 不存在，没有动文件。）`;
 
   const source = parseDoc(readText(sourceFile), rel, year, today);
@@ -911,8 +956,14 @@ function forget(args: Args, opts: LedgerToolOptions): string {
   if ('error' in hit) return miss(hit);
   if (!hit.raw.trim()) return '（没取到这条的原文，没有动文件。）';
 
-  // 归档按月聚：日块取它的年月，特殊块落到本月
-  const month = hit.date && hit.date.length >= 7 ? hit.date.slice(0, 7) : today.slice(0, 7);
+  // 归档按月聚：日块取它的年月，特殊块落到本月；归档文件名可用同一天展开占位符
+  const date = hit.date && hit.date.length >= 7 ? hit.date : today;
+  const month = date.slice(0, 7);
+  const toRel = archiveTargetOf(opts, rel, date, str(args, 'to'));
+  if (!toRel) return `（${rel} 没配归档目标；请写 to=…，或到设置页给这一份填「归档到哪」。）`;
+  if (rel === toRel) return '（源和归档是同一份文件。）';
+  const targetFile = fileOf(folder, toRel);
+  if (!targetFile) return '（归档路径不对，没有动文件。）';
   const targetText = existsSync(targetFile) && statSync(targetFile).isFile() ? readText(targetFile) : '# 归档\n';
   const target = parseDoc(targetText, toRel, year, today);
   const ensured = ensureMonthBlock(target, month);
@@ -926,14 +977,14 @@ function forget(args: Args, opts: LedgerToolOptions): string {
   if (entriesCount(targetAfter) !== entriesCount(target) + 1) return '（核对不通过：归档没有多出一条，没有写盘。）';
 
   // 先写归档：中间出事最坏是多一份（体检能看出来），不会两边都没有
-  save(targetFile, archived.text, opts.backupDir());
-  save(sourceFile, hit.text, opts.backupDir());
+  const targetOutcome = save(targetFile, archived.text, opts.backupDir());
+  const sourceOutcome = save(sourceFile, hit.text, opts.backupDir());
 
   return [
     `已从 ${rel}「${block}」移出 1 条「${hit.removed.slice(0, 30)}」`,
     `归档进 ${toRel}「${month}」；它不会再回到 ${rel}。`,
     `（归档不进前缀。要翻它，用 read_file 看 ${toRel}。）`,
-    NO_COMMIT,
+    commitLine({ backupOk: targetOutcome.backupOk && sourceOutcome.backupOk }),
   ].join('\n');
 }
 
@@ -986,7 +1037,7 @@ export const LEDGER_TOOL_DECLS: ReadonlyArray<Omit<ToolDef, 'handler'>> = [
   },
   {
     name: 'ml_move',
-    description: '把整块（一整天）从一份记忆搬到另一份，按日期插到正确位置。给了 `text` 就用它换掉块内正文（压进下一层：今天那份 → 再往前那份），标题不动；**这时不写 `to` 就默认压进「再往前那份」**。没给 `text` 时必须写 `to`（归档有两份，不替你猜）。不要用 move_file 按行搬：算错一行会把下一天的头切走。同一天在目标里已有会被拒绝。目标是归档目录里的文件时自动建。**归档是单向的**：可以搬进去，不搬出来。',
+    description: '把整块（一整天）从一份记忆搬到另一份，按日期插到正确位置。给了 `text` 就用它换掉块内正文（压进下一层：今天那份 → 再往前那份），标题不动；**这时不写 `to` 就默认压进「再往前那份」**。没给 `text` 时不写 `to` 也行：按这份文件自己的归档设置归位（近期按月、大事记按固定那份），归档目录固定 `archive/`。只有这份没配归档时才要写 `to`。不要用 move_file 按行搬：算错一行会把下一天的头切走。同一天在目标里已有会被拒绝。目标是归档目录里的文件时自动建。**归档是单向的**：可以搬进去，不搬出来。',
     tags: ['write'],
     parameters: {
       type: 'object',
@@ -1050,7 +1101,7 @@ export const LEDGER_TOOL_DECLS: ReadonlyArray<Omit<ToolDef, 'handler'>> = [
   },
   {
     name: 'ml_block',
-    description: '对**整块**做四件事：`view` 看原文（按条编号，不用读整份文件）；`write` 用新正文**重写整块**（标题不动，条目按你写的来）；`delete` 整块删掉（**不进归档**）；`rename` 只改标题、条目一条不动。加一条用 `ml_add`，删一条用 `ml_delete`，整块搬到另一份用 `ml_move`。',
+    description: '对**整块**做四件事：`view` 看原文（按条编号，不用读整份文件）；`write` 用新正文**重写整块**（标题不动，条目按你写的来；一行一件的清单块不支持，会指路）；`delete` 整块删掉（**不进归档**）；`rename` 只改标题、条目一条不动。加一条用 `ml_add`，删一条用 `ml_delete`，整块搬到另一份用 `ml_move`。',
     tags: ['read', 'write'],
     parameters: {
       type: 'object',

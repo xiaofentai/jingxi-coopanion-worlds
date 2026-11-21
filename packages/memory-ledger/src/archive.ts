@@ -38,21 +38,23 @@ export function ensureArchiveFile(folder: string, rel: string): string | null {
 }
 
 /**
- * 归档目录下所有 `.md` 里出现过的日期（`## 2026-11-05` 这种块标题）。
+ * `archive/` 下所有 `.md` 里出现过的日期（`## 2026-11-05` 这种块标题）。
  *
+ * 目录固定，不让归档文件名决定——设置页只改文件名，改不了目录。
  * 只扫标题、不解析正文——归档会越积越大，每次生成前缀都全文 parse 太贵。
  * 用途只有一个：把搬走的那些天算回覆盖里，否则「中间某天搬走」会被误报成缺口。
  */
-export function archivedDates(folder: string, archiveRel: string, year: number): string[] {
-  const full = landingSpot(folder, archiveRel);
-  if (!full) return [];
-  const dir = dirname(full);
+export function archivedDates(folder: string, _archiveRel: string, year: number): string[] {
+  // 路径参数留着兼容调用方；目录只认固定的 archive/
+  const dir = landingSpot(folder, 'archive/__probe__.md');
+  if (!dir) return [];
+  const archiveDir = dirname(dir);
   const out: string[] = [];
   try {
-    if (!existsSync(dir)) return [];
-    for (const name of readdirSync(dir)) {
+    if (!existsSync(archiveDir)) return [];
+    for (const name of readdirSync(archiveDir)) {
       if (!name.endsWith('.md')) continue;
-      const text = readFileSync(join(dir, name), 'utf8');
+      const text = readFileSync(join(archiveDir, name), 'utf8');
       // 两种标题都认：`## 11-05`（日块的短格式）和 `## 2026-11-05`
       for (const m of text.matchAll(/^##\s+(?:(\d{4})-)?(\d{2})-(\d{2})\b/gm)) {
         out.push(`${m[1] ?? year}-${m[2]}-${m[3]}`);
