@@ -1,0 +1,56 @@
+{
+  "name": "world-idle-nudge",
+  "version": "0.1.5",
+  "type": "module",
+  "description": "她闲下来一阵之后，按设定的节奏推一条事件：静默心跳（续缓存，全天）或小纸条（一句带动作的话，只在可配时段）。两套判据独立，纸条不看 usage 的 mtime。不写盘、不给工具、不进前缀。",
+  "author": "xiaofentai",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xiaofentai/jingxi-coopanion-worlds.git",
+    "directory": "packages/idle-nudge"
+  },
+  "keywords": [
+    "cortico-world",
+    "world",
+    "nudge",
+    "heartbeat",
+    "idle"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "cortico": {
+    "kind": "world",
+    "api": 6,
+    "displayName": "Idle Nudge",
+    "webUiClient": "src/webui.js",
+    "webUiStyle": "src/webui.css",
+    "tags": [
+      "system"
+    ],
+    "locales": {
+      "zh": {
+        "displayName": "小纸条",
+        "description": "她闲下来之后按节奏推一条事件：静默心跳续缓存（全天），或小纸条递一句带动作的话（只在三个可配时段，每段独立限额）。纸条不看 usage 的 mtime，后台推多少信息都挡不住它。不写盘、不给工具、不进前缀。"
+      }
+    }
+  },
+  "files": [
+    "src",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test tests/beat.test.ts tests/note.test.ts tests/settings.test.ts tests/world.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2"
+  }
+}

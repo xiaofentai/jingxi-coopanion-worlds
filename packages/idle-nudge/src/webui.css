@@ -1,0 +1,30 @@
+/* 只写自己这一层：.in-settings 是面板根，宿主给 Details / row / input 的默认值都留着。 */
+.in-settings details.sheet.fold > summary { align-items: center; padding: 0 0 4px; }
+.in-settings details.sheet.fold > .foldbody { padding: 0; }
+
+/* 面板第一张卡：宿主把它当页面开头，去掉了上边框和内边距；这里只对第一张补回来（见交接 4.4）。 */
+.in-settings > details.sheet.fold:first-child {
+  border-top: 1px solid var(--border);
+}
+.in-settings > details.sheet.fold:first-child > summary {
+  padding-top: 16px;
+}
+
+/* 标签会换行，别设 min-width，120px 的栅格已经很窄（交接 4.5）。 */
+.in-settings .companion-label { white-space: normal; overflow-wrap: anywhere; padding-right: 12px; }
+
+/* 字段多，把行压紧一点（交接 4.6）。 */
+.in-settings .companion-row.configrow { padding: 8px 0; }
+.in-settings input.field { min-height: 34px; height: 34px; padding-block: 0; }
+.in-settings .home-note { font-size: 12px; line-height: 1.5; margin: 4px 0 0; }
+
+/* 时段行：左边时段框宽一点，右边张数框窄一点，中间一个乘号。 */
+.in-settings .in-slot-pair { display: flex; align-items: center; gap: 8px; }
+.in-settings .in-slot-pair .tfield:first-child { flex: 1 1 140px; min-width: 0; }
+.in-settings .in-slot-sep { color: var(--ink-dim, #8b8b91); }
+.in-settings .in-slot-pair .tfield:last-child { flex: 0 0 62px; }
+.in-settings .in-slot-pair input.field { width: 100%; }
+
+/* 现状那两行是只读文本，不需要输入框的留白。 */
+.in-settings .companion-row:has(.in-readonly) { padding: 6px 0 8px; }
+.in-settings .in-readonly { color: var(--ink-soft, #5c5c62); }
