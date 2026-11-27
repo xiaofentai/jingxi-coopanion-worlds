@@ -1,6 +1,6 @@
 {
   "name": "world-idle-nudge",
-  "version": "0.1.5",
+  "version": "0.3.0",
   "type": "module",
   "description": "她闲下来一阵之后，按设定的节奏推一条事件：静默心跳（续缓存，全天）或小纸条（一句带动作的话，只在可配时段）。两套判据独立，纸条不看 usage 的 mtime。不写盘、不给工具、不进前缀。",
   "author": "xiaofentai",
@@ -47,7 +47,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test tests/beat.test.ts tests/note.test.ts tests/settings.test.ts tests/world.test.ts"
+    "test": "node --test tests/beat.test.ts tests/note.test.ts tests/greeting.test.ts tests/settings.test.ts tests/world.test.ts",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

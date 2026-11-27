@@ -4,13 +4,14 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   DEFAULT_NOTE_TEXT, clampSettings, parseSlotPair, slotRangeText,
   readSettings, seedSettings, writeSettings, type NudgeSettings,
 } from '../src/settings.ts';
+import { checkIncoming } from '../src/validate.ts';
 
 function sandbox(initial: unknown = {}): string {
   const dir = mkdtempSync(join(tmpdir(), 'idle-nudge-test-'));
@@ -18,10 +19,12 @@ function sandbox(initial: unknown = {}): string {
   return dir;
 }
 
-test('seedSettings：心跳默认关（缓存计价不明时别开）、纸条默认开', () => {
+test('seedSettings：心跳与问候默认关、纸条默认开', () => {
   const s = seedSettings();
   assert.equal(s.heartbeatEnabled, false);
   assert.equal(s.noteEnabled, true);
+  assert.equal(s.greetingEnabled, false);
+  assert.deepEqual(s.greetings, [{ time: '', jitter: 20 }, { time: '', jitter: 20 }]);
   assert.equal(s.idleMinutes, 40);
   assert.equal(s.tickSeconds, 15);
   assert.equal(s.maxPerDay, 48);
@@ -97,6 +100,63 @@ test('readSettings：从 settings 段读回；没有段时用 seed；坏段也�
 
   const broken = sandbox({ worlds: { 'idle-nudge': { settings: 'not-an-object' } } });
   assert.deepEqual(readSettings(broken), seedSettings());
+});
+
+test('slotRangeText：半填的段原样显示（不让用户以为自己没填过）', () => {
+  assert.equal(slotRangeText({ from: '9', to: '', perDay: 1 }), '9-');
+  assert.equal(slotRangeText({ from: '', to: '12', perDay: 1 }), '-12');
+  assert.equal(slotRangeText({ from: '', to: '', perDay: 1 }), '');
+});
+
+test('checkIncoming：不规范的值直接报错（不悄悄改成别的）', () => {
+  const cur = seedSettings();
+  assert.equal(checkIncoming({ tickSeconds: 15, slot0: { range: '9-12', perDay: 1 } }, cur), null);
+  assert.match(checkIncoming({ tickSeconds: 1 }, cur) ?? '', /看表间隔要 5–300 秒/);
+  assert.match(checkIncoming({ tickSeconds: 1.5 }, cur) ?? '', /要填整数/);
+  assert.match(checkIncoming({ maxPerDay: 999 }, cur) ?? '', /每日上限要 0–240 拍/);
+  assert.match(checkIncoming({ noteText: 'x'.repeat(501) }, cur) ?? '', /最多 500 字/);
+  assert.match(checkIncoming({ slot0: { range: '9-25', perDay: 1 } }, cur) ?? '', /时段 1写坏了/);
+  assert.match(checkIncoming({ slot1: { range: '9-', perDay: 1 } }, cur) ?? '', /时段 2只填了一半/);
+  assert.match(checkIncoming({ slot2: { range: '9-9', perDay: 1 } }, cur) ?? '', /时段 3起止相同/);
+  assert.match(checkIncoming({ slot0: { range: '9-12', perDay: 99 } }, cur) ?? '', /每天几张」要 0–24/);
+  assert.match(checkIncoming({ greeting0: { range: '25:00', perDay: 20 } }, cur) ?? '', /早安时刻写坏了/);
+  assert.match(checkIncoming({ greeting1: { range: '22:30', perDay: 999 } }, cur) ?? '', /抖动幅度」要 0–240/);
+});
+
+test('checkIncoming：留空＝不启用 / 没提交＝不改，都不算错', () => {
+  const cur = seedSettings();
+  assert.equal(checkIncoming({}, cur), null);
+  assert.equal(checkIncoming({ slot0: { range: '', perDay: 0 } }, cur), null);
+  assert.equal(checkIncoming({ slot0: { range: '-', perDay: 0 } }, cur), null, '只留一个减号当清空');
+  assert.equal(checkIncoming({ greeting0: { range: '', perDay: 20 } }, cur), null);
+});
+
+test('writeSettings：config.json 坏了就拒绝写回，原文一个字不动', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'idle-nudge-broken-'));
+  const file = join(dir, 'config.json');
+  const broken = '{ "worlds": { "memory-ledger": { "enabled": true, "settings": { "folder": "workspace" ';
+  writeFileSync(file, broken, 'utf8');
+  assert.throws(() => writeSettings(dir, seedSettings()), /没有保存：config\.json 解析失败/);
+  assert.equal(readFileSync(file, 'utf8'), broken, '坏文件原样留着，等人工修');
+  assert.equal(readdirSync(dir).length, 1, '不留临时文件 / 备份文件');
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('writeSettings：顶层不是对象也拒绝（否则 JSON.stringify 会写成 []、丢别的键）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'idle-nudge-broken-'));
+  const file = join(dir, 'config.json');
+  writeFileSync(file, '[]', 'utf8');
+  assert.throws(() => writeSettings(dir, seedSettings()), /顶层不是对象/);
+  assert.equal(readFileSync(file, 'utf8'), '[]');
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('writeSettings：config.json 不存在＝新装，照常建一份', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'idle-nudge-fresh-'));
+  writeSettings(dir, { ...seedSettings(), noteGapMinutes: 42 });
+  const raw = JSON.parse(readFileSync(join(dir, 'config.json'), 'utf8')) as Record<string, any>;
+  assert.equal(raw.worlds['idle-nudge'].settings.noteGapMinutes, 42);
+  rmSync(dir, { recursive: true, force: true });
 });
 
 test('writeSettings 落盘后 readSettings 读回同一份（往返）', () => {

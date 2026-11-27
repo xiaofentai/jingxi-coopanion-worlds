@@ -10,10 +10,11 @@ export {
 export { IdleNudgeWorld } from './world.ts';
 export type { IdleNudgeWorldOptions, NudgeStatus } from './world.ts';
 export {
-  DEFAULT_HEARTBEAT_TEXT, DEFAULT_NOTE_TEXT, DEFAULT_SLOTS, DEFAULT_SETTINGS,
+  DEFAULT_GREETINGS, DEFAULT_HEARTBEAT_TEXT, DEFAULT_NOTE_TEXT,
+  DEFAULT_SLOTS, DEFAULT_SETTINGS,
   SETTINGS_KEY, clampSettings, parseSlotPair, slotRangeText,
   readSettings, seedSettings, writeSettings,
-  type NoteSlot, type NudgeSettings,
+  type GreetingSlot, type NoteSlot, type NudgeSettings,
 } from './settings.ts';
 export {
   DEFAULT_IDLE_MINUTES, DEFAULT_MAX_PER_DAY, DEFAULT_TEMPLATE_EN, DEFAULT_TEMPLATE_ZH,
@@ -25,5 +26,10 @@ export {
 } from './beat.ts';
 export {
   decideNote, inWindow, jitterMinute, jitterOffset, parseClock, renderNote, slotEnabled,
-  windowSpan, type NoteDecision, type NoteFacts, type NotePolicy,
+  windowSpan, hash32, hashOffset,
+  type NoteDecision, type NoteFacts, type NotePolicy,
 } from './note.ts';
+export {
+  GREETING_HINT, decideGreeting, greetingEnabled, greetingTarget, renderGreeting,
+  type GreetingDecision, type GreetingFacts, type GreetingPolicy,
+} from './greeting.ts';

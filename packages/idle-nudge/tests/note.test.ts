@@ -24,6 +24,9 @@ const facts = (minuteOfDay: number, over: Partial<NoteFacts> = {}): NoteFacts =>
 const END9_12 = 12 * HOUR - 1;
 const END14_18 = 18 * HOUR - 1;
 
+/** 只比「推不推、推哪一段」；targetAt 另有专门的断言。 */
+const fired = (d: ReturnType<typeof decideNote>) => (d.fire ? { fire: true as const, slot: d.slot } : d);
+
 test('parseClock：9 / 14:30 / 空串 / 写坏', () => {
   assert.equal(parseClock('9'), 540);
   assert.equal(parseClock('09:30'), 570);
@@ -81,12 +84,12 @@ test('decideNote：窗口一开不推，要等到当天抖动点', () => {
   assert.match(before.fire === false ? before.note : '', /窗口内抖了一下/);
 
   const after = decideNote(facts(9 * HOUR + target), policy([slot('9', '12')]));
-  assert.deepEqual(after, { fire: true, slot: 0 });
+  assert.deepEqual(fired(after), { fire: true, slot: 0 });
 });
 
 test('decideNote：落在窗口里、名额没用完、抖动点过了 → 推对应段', () => {
-  assert.deepEqual(decideNote(facts(END9_12), policy([slot('9', '12'), slot('14', '18')])), { fire: true, slot: 0 });
-  assert.deepEqual(decideNote(facts(END14_18), policy([slot('9', '12'), slot('14', '18')])), { fire: true, slot: 1 });
+  assert.deepEqual(fired(decideNote(facts(END9_12), policy([slot('9', '12'), slot('14', '18')]))), { fire: true, slot: 0 });
+  assert.deepEqual(fired(decideNote(facts(END14_18), policy([slot('9', '12'), slot('14', '18')]))), { fire: true, slot: 1 });
 });
 
 test('decideNote：不在任何窗口 → 不推', () => {
@@ -109,25 +112,29 @@ test('decideNote：间隔跨段共用——刚推过一张，换到下一个窗�
 
   const ok = decideNote(facts(END14_18, { lastNoteAt: NOW - 121 * 60_000 }),
     policy([slot('9', '12'), slot('14', '18')], 120));
-  assert.deepEqual(ok, { fire: true, slot: 1 });
+  assert.deepEqual(fired(ok), { fire: true, slot: 1 });
 });
 
 test('decideNote：间隔 0 = 关掉这道闸', () => {
   const d = decideNote(facts(END14_18, { lastNoteAt: NOW - 1000 }),
     policy([slot('9', '12'), slot('14', '18'), slot('19', '22')], 0));
-  assert.deepEqual(d, { fire: true, slot: 1 });
+  assert.deepEqual(fired(d), { fire: true, slot: 1 });
 });
 
 test('decideNote：重叠窗口只推第一段，不会一次推两张', () => {
   const d = decideNote(facts(END9_12), policy([slot('9', '12'), slot('10', '11')]));
-  assert.deepEqual(d, { fire: true, slot: 0 });
+  assert.deepEqual(fired(d), { fire: true, slot: 0 });
 });
+
+
 
 test('renderNote：换 {time}，留空退默认，默认句不诱导气泡回复', () => {
   assert.equal(renderNote('现在{time}啦', '14:00', 'x'), '现在14:00啦');
   assert.equal(renderNote('', '14:00', DEFAULT_NOTE_TEXT), DEFAULT_NOTE_TEXT.replace('{time}', '14:00'));
   assert.match(DEFAULT_NOTE_TEXT, /不是 ta 说的/);
-  assert.match(DEFAULT_NOTE_TEXT, /别回这条/);
+  assert.match(DEFAULT_NOTE_TEXT, /不用回这条/);
+  assert.match(DEFAULT_NOTE_TEXT, /找人或者别的鱼聊两句/);
+  assert.match(DEFAULT_NOTE_TEXT, /微信 \/ 气泡/);
   assert.doesNotMatch(DEFAULT_NOTE_TEXT, /要不要/);
   assert.match(DEFAULT_NOTE_TEXT, /直接调工具去做/);
 });

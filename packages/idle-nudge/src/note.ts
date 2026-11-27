@@ -26,9 +26,16 @@ export function parseClock(raw: string): number | null {
   return h * 60 + min;
 }
 
-/** 一段窗口在不在生效：两端都能解析、起点不等于终点、perDay > 0。 */
+/**
+ * 一段窗口在不在生效：两端都能解析、起点不等于终点、perDay > 0。
+ * 起止相同（`9-9`）是真·空窗口——`inWindow` 恒 false，这时候当没填，
+ * 否则用户会看到「已启用」却一张都不推，现状卡还只说「不在任何启用的时段」。
+ */
 export function slotEnabled(slot: NoteSlot): boolean {
-  return slot.perDay > 0 && parseClock(slot.from) !== null && parseClock(slot.to) !== null;
+  const from = parseClock(slot.from);
+  const to = parseClock(slot.to);
+  if (from === null || to === null) return false;
+  return slot.perDay > 0 && from !== to;
 }
 
 /** 当前分钟落在窗口内吗。窗口可跨零点（如 22-2）。 */
@@ -50,7 +57,7 @@ function elapsedInWindow(now: number, from: number, to: number): number {
 }
 
 /** FNV-1a，32 位；用来把「日期|段号|第几张」定成一个当天稳定、跨天变化的数。 */
-function hash32(text: string): number {
+export function hash32(text: string): number {
   let h = 0x811c9dc5;
   for (let i = 0; i < text.length; i += 1) {
     h ^= text.charCodeAt(i);
@@ -59,18 +66,22 @@ function hash32(text: string): number {
   return h >>> 0;
 }
 
+/** 哈希取模，供纸条和问候共用；种子带日期，所以同一天稳定、隔天换。 */
+export function hashOffset(day: string, seed: number, attempt: number, bucket: number, span: number): number {
+  if (span <= 0 || bucket <= 0) return 0;
+  const size = Math.max(1, Math.floor(span / bucket));
+  const h = hash32(`${day}|${seed}|${attempt}`);
+  const within = Math.min(size - 1, h % size);
+  return Math.min(span - 1, attempt * size + within);
+}
+
 /**
  * 当天这一段的第 attempt 张，落在窗口起点之后第几分钟。
  * 窗口按 perDay 均分成几份，每份里哈希取一个点——perDay=1 就是整段随机一个时刻；
  * perDay=2 就是前半段一个、后半段一个，不会两张挤在一起。
  */
 export function jitterOffset(day: string, slotIndex: number, attempt: number, perDay: number, span: number): number {
-  if (span <= 0 || perDay <= 0) return 0;
-  const bucket = Math.max(1, Math.floor(span / perDay));
-  const h = hash32(`${day}|${slotIndex}|${attempt}`);
-  const within = Math.min(bucket - 1, h % bucket);
-  // 每一张落在自己的那一份里，不会两张挤在同一个半段
-  return Math.min(span - 1, attempt * bucket + within);
+  return hashOffset(day, slotIndex, attempt, perDay, span);
 }
 
 /** 把窗口起点 + 偏移换回当天的分钟数（可能跨零点，所以对 1440 取模）。 */

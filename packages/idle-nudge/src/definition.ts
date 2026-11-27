@@ -33,6 +33,14 @@ export const IDLE_NUDGE: WorldDefinition<IdleNudgeConfigSection> = {
         },
         trigger: 'flush',
       },
+      {
+        type: `${IDLE_NUDGE_ID}.greeting`,
+        description: {
+          zh: '早晚安：到点后递一句「该道早安 / 晚安了」的由头。正文写明了不是ta说的、别回这条；措辞和走哪条通道由她自己定。',
+          en: 'A greeting: a hint at a configured time that it is time to say good morning / night. The text says it is not from them and needs no reply; wording and channel are up to them.',
+        },
+        trigger: 'flush',
+      },
     ],
   },
 };
