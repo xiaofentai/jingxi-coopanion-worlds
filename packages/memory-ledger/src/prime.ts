@@ -18,8 +18,8 @@ export const PRIME_LIMIT = 2;
 /** 同一块推过之后多久之内不再推。重复的东西会让她以为刚才发生过。 */
 export const PRIME_COOLDOWN_MS = 2 * 3600_000;
 
-/** 一天最多推几次（配置的默认值）。 */
-export const PRIME_PER_DAY = 6;
+/** 一天最多推几次（配置的默认值）。预算是最后一道闸，前面还有说话/强命中/冷却三道。 */
+export const PRIME_PER_DAY = 20;
 
 /**
  * 今天的名额还没用完吗。`cap <= 0` 表示不限。
@@ -78,6 +78,6 @@ export function primeText(hits: readonly RecallHit[]): string {
   return [
     '（系统递的旧记忆：不是他刚说的，也不是他在问你话。**不用回这条。**',
     ...lines,
-    '真要用，就用你平时那条通道开口（微信 / 气泡）；不想说就安静，没人等你。）',
+    '想看那天记了什么就自己 `ml_recall`；要用就用平时那条通道开口（微信 / 气泡）。）',
   ].join('\n');
 }

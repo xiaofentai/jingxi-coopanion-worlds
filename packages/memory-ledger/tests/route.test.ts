@@ -1,7 +1,7 @@
 /** 游戏路由：认局、认身份、拼注入。 */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildInjection, detectGame, parseFamilyMap, pickBlock } from '../src/route.ts';
+import { buildInjection, detectGame, detectParlorStart, GAME_FRESH_MS, parseFamilyMap, pickBlock } from '../src/route.ts';
 import { parseDoc } from '../src/parse.ts';
 
 const call = (gameId: string, family: string) => ({
@@ -13,6 +13,66 @@ const receipt = (gameId: string, status: string, ownRole: string | null) => ({
   type: 'function_call_output',
   output: `[回执] ${JSON.stringify({ gameId, status, ownRole, alive: [], day: 1 })}`,
 });
+/** 真开局时，一条工具回执里会夹着 attendance / public / private 好几段 JSON。 */
+const eventReceipt = (gameId: string, phase: string) => ({
+  type: 'function_call_output',
+  output: [
+    '[4 new events]',
+    '[星邮 game.attendance]',
+    JSON.stringify({ gameId, participants: [] }),
+    '[星邮 game.public]',
+    JSON.stringify({ id: 'e1', gameId, day: 1, phase, kind: 'chat' }),
+  ].join(' '),
+});
+/** 真实开局：public started + private role 一起到。 */
+const startedReceipt = (gameId: string, role = 'villager') => ({
+  type: 'function_call_output',
+  output: [
+    '[4 new events]',
+    '[星邮 game.attendance]',
+    JSON.stringify({ gameId, participants: [] }),
+    '[星邮 game.public]',
+    JSON.stringify({
+      gameId, day: 1, phase: 'night_wolf', kind: 'started',
+      rules: { wolf: 2, seer: 1, villager: 3 },
+    }),
+    '[星邮 game.private]',
+    JSON.stringify({ gameId, day: 1, phase: 'night_wolf', kind: 'role', to: 'u1', role }),
+  ].join(' '),
+});
+const external = () => ({ type: 'function_call', name: 'external_event_frame', arguments: '{}' });
+const parlorEvent = (text: string, cursor = 1, at = Date.now()) => ({
+  type: 'parlor.message',
+  origin: 'external',
+  ts: new Date(at).toISOString(),
+  cursor,
+  text,
+});
+
+test('客厅：看身份消息直接认局并取到角色', () => {
+  const game = detectParlorStart([
+    parlorEvent('【狼人杀·第1天·看身份】你的身份：狼人（狼人阵营）。同伴：5号 沈澜。', 41665),
+  ]);
+  assert.equal(game?.platform, 'parlor');
+  assert.equal(game?.family, 'werewolf');
+  assert.equal(game?.gameId, 'parlor:41665');
+  assert.equal(game?.status, 'playing');
+  assert.equal(game?.role, '狼人');
+});
+
+test('客厅：只认看身份，夜晚重复身份不触发', () => {
+  assert.equal(detectParlorStart([
+    parlorEvent('【狼人杀·第1天·夜晚】你的身份：狼人（狼人阵营）。', 41669),
+  ]), null);
+});
+
+test('客厅：终局晚于看身份时，不再认在局中', () => {
+  const now = Date.now();
+  assert.equal(detectParlorStart([
+    parlorEvent('【狼人杀·第1天·看身份】你的身份：狼人（狼人阵营）。', 1, now - 5000),
+    parlorEvent('【狼人杀·终局】好人阵营胜利。', 2, now),
+  ], now), null);
+});
 
 test('从日志认出这一局：family、gameId、身份', () => {
   const game = detectGame([call('g1', 'werewolf'), receipt('g1', 'day', 'wolf')]);
@@ -21,9 +81,59 @@ test('从日志认出这一局：family、gameId、身份', () => {
   assert.equal(game?.role, 'wolf');
 });
 
-test('发牌前 ownRole 是 null，不认成身份', () => {
-  const game = detectGame([call('g1', 'werewolf'), receipt('g1', 'scheduled', null)]);
+test('局中 ownRole 是 null，不认成身份', () => {
+  const game = detectGame([call('g1', 'werewolf'), receipt('g1', 'day', null)]);
+  assert.equal(game?.gameId, 'g1');
   assert.equal(game?.role, null);
+});
+
+test('星邮：预约中的局不算在局中', () => {
+  assert.equal(detectGame([call('g1', 'werewolf'), receipt('g1', 'scheduled', null)]), null);
+});
+
+test('星邮：预约后真开局才认局，事件从夹带回执里读', () => {
+  const game = detectGame([
+    call('g1', 'werewolf'), receipt('g1', 'scheduled', null),
+    call('g1', 'werewolf'), eventReceipt('g1', 'night_wolf'),
+  ]);
+  assert.equal(game?.gameId, 'g1');
+  assert.equal(game?.status, 'night_wolf');
+  assert.equal(game?.role, null);
+});
+
+test('星邮：夹带回执里是别人的局，不认成这一局', () => {
+  const game = detectGame([
+    call('g1', 'werewolf'), receipt('g1', 'scheduled', null),
+    call('g1', 'werewolf'), eventReceipt('g2', 'day'),
+  ]);
+  assert.equal(game, null);
+});
+
+test('星邮：开局事件隔在 external_event_frame 后面也能认，并取到角色', () => {
+  const game = detectGame([
+    call('g1', 'werewolf'), receipt('g1', 'scheduled', null),
+    external(), startedReceipt('g1', 'villager'),
+  ]);
+  assert.equal(game?.gameId, 'g1');
+  assert.equal(game?.status, 'night_wolf');
+  assert.equal(game?.role, 'villager');
+});
+
+test('星邮：开局后 game.closed 出现，就不再认在局中', () => {
+  const game = detectGame([
+    call('g1', 'werewolf'), receipt('g1', 'scheduled', null),
+    external(), startedReceipt('g1', 'villager'),
+    external(), { type: 'function_call_output', output: '[星邮 game.closed] {"gameId":"g1"}' },
+  ]);
+  assert.equal(game, null);
+});
+
+test('星邮：rules 回执里的角色配置不单独触发路由', () => {
+  const game = detectGame([
+    call('g1', 'werewolf'),
+    { type: 'function_call_output', output: JSON.stringify({ presets: { 6: { wolf: 2, seer: 1, villager: 3 } } }) },
+  ]);
+  assert.equal(game, null);
 });
 
 test('取最后一局：打完一局再开，身份不能串局', () => {
@@ -196,4 +306,81 @@ test('注入：文件头没写映射时，把角色名和块清单都摆出来',
   );
   assert.match(out.text, /文件头没写 wolf 对应哪一块/);
   assert.match(out.text, /- 当狼 · 1 条/);
+});
+
+// ---- 两个狼人杀插件共存时的边界 ----
+
+test('星邮：加入被拒的局不算在局中（回执没有 status）', () => {
+  const game = detectGame([
+    call('g1', 'werewolf'),
+    { type: 'function_call_output', output: '星邮操作失败：未知狼人杀操作' },
+  ]);
+  assert.equal(game, null);
+});
+
+test('星邮：已结束的局不算在局中', () => {
+  assert.equal(detectGame([call('g1', 'werewolf'), receipt('g1', 'ended', 'wolf')]), null);
+});
+
+test('星邮：family 和 gameId 不跨调用拼局', () => {
+  const onlyGame = {
+    type: 'function_call', name: 'starpost_use',
+    arguments: JSON.stringify({ argsJson: JSON.stringify({ gameId: 'g1' }) }),
+  };
+  const onlyFamily = {
+    type: 'function_call', name: 'starpost_use',
+    arguments: JSON.stringify({ family: 'werewolf' }),
+  };
+  assert.equal(detectGame([onlyGame, onlyFamily, receipt('g1', 'day', 'wolf')]), null);
+});
+
+test('两个平台：旧日志不因重启被当成新局', () => {
+  const old = new Date(Date.now() - 2 * GAME_FRESH_MS).toISOString();
+  assert.equal(detectGame([
+    { ...call('g1', 'werewolf'), ts: old },
+    receipt('g1', 'day', 'wolf'),
+  ]), null);
+});
+
+test('客厅：最后一条 state 是等待入座，仍认前面那条 playing', () => {
+  const info = () => ({ type: 'function_call', name: 'parlor_game_info', arguments: '{"op":"state"}' });
+  const game = detectGame([
+    info(), { type: 'function_call_output', output: parlorState('werewolf', 'playing', 'seer', 't-1') },
+    info(), { type: 'function_call_output', output: parlorState('werewolf', 'open', null, 't-1') },
+  ]);
+  assert.equal(game?.gameId, 't-1');
+  assert.equal(game?.role, 'seer');
+});
+
+test('客厅：status 只写在 tablePrivate 上也认', () => {
+  const state = JSON.stringify({
+    ok: true,
+    tablePrivate: { game: 'werewolf', status: 'playing', tableId: 't-2', role: 'seer' },
+  });
+  const game = detectGame([
+    { type: 'function_call', name: 'parlor_game_info', arguments: '{"op":"state"}' },
+    { type: 'function_call_output', output: state },
+  ]);
+  assert.equal(game?.platform, 'parlor');
+  assert.equal(game?.gameId, 't-2');
+});
+
+test('客厅：没调 state 时用对局动作认局，身份取消息里的中文', () => {
+  const game = detectGame([
+    { type: 'function_call', name: 'parlor_game_info', arguments: '{"op":"state"}' },
+    { type: 'function_call_output', output: JSON.stringify({ tables: [{ tableId: 't-3', game: 'werewolf' }] }) },
+    { type: 'function_call', name: 'parlor_game_action', arguments: '{"action":"inspect"}' },
+    { type: 'function_call_output', output: JSON.stringify({ ok: true, tableId: 't-3' }) },
+    { type: 'function_call_output', output: '【狼人杀·第1天】你的身份：预言家（好人阵营）。' },
+  ]);
+  assert.equal(game?.platform, 'parlor');
+  assert.equal(game?.gameId, 't-3');
+  assert.equal(game?.role, '预言家');
+});
+
+test('客厅：动作回执认不出游戏名就不猜', () => {
+  assert.equal(detectGame([
+    { type: 'function_call', name: 'parlor_game_action', arguments: '{}' },
+    { type: 'function_call_output', output: JSON.stringify({ ok: true, tableId: 't-9' }) },
+  ]), null);
 });

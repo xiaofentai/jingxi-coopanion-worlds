@@ -99,7 +99,7 @@ export const MEMORY_LEDGER_DEFAULTS: MemoryLedgerConfigSection = {
   archiveFile: DEFAULT_ARCHIVE_FILE,
   recallOnSpeak: false,
   preactivate: false,
-  preactivatePerDay: 6,
+  preactivatePerDay: 20,
   gameRoute: false,
   rule1: '',
   rule2: '',

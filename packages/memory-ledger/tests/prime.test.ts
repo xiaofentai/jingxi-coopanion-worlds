@@ -42,6 +42,7 @@ test('推出去的那段话：先说清不是他刚说的、不用回、要回�
   assert.match(lines[0], /不是他刚说的/);
   assert.match(lines[0], /不用回这条/);
   assert.match(lines.at(-1), /微信 \/ 气泡/);
+  assert.doesNotMatch(lines.at(-1), /没人等你/);
   assert.match(lines[1], /^· 11-03（近期）为尾巴拌了嘴/);
   assert.match(lines[2], /^· 11-07（超近期）八人局赢了/);
 });

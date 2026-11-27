@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -580,6 +580,35 @@ test('备份失败时照写，但回执明说没留底，让桌宠报给用户',
   }
 });
 
+test('归档目标第一次写：没有旧版可备份，不再误报备份失败', () => {
+  const root = mkdtempSync(join(tmpdir(), 'ledger-new-archive-'));
+  try {
+    const folder = join(root, 'workspace');
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, '近期.md'), JQ, 'utf8');
+    const backups = join(root, 'backups');
+    const tools = createLedgerTools({
+      folder: () => folder,
+      rules: () => RULES,
+      backupDir: () => backups,
+      today: () => '2026-11-10',
+      todayFile: () => '超近期.md',
+      pastFile: () => '近期.md',
+      archiveFile: () => '',
+      archiveFor: () => 'archive/近期-2026-11.md',
+    } as Parameters<typeof createLedgerTools>[0]);
+    const receipt = String(tools.find((t) => t.name === 'ml_move')?.handler({
+      from: '近期.md', block: '11-07',
+    } as never));
+    assert.doesNotMatch(receipt, /备份失败/);
+    assert.match(readFileSync(join(folder, 'archive/近期-2026-11.md'), 'utf8'), /## 11-07/);
+    // 源文件有旧版，那份备份照旧留
+    assert.ok(readdirSync(backups).some((name) => name.endsWith('-近期.md')));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('ml_move 没给 text 又不写 to、这份也没配归档：拒绝，不替你猜', () => {
   sandbox((box) => {
     const before = box.read('超近期.md');
@@ -673,6 +702,47 @@ test('同一天同一块里再记一条，不再凑「可能相关」', () => {
   });
 });
 
+test('写进还挂着且正文有时刻：回执提示用 alarm_set', () => {
+  sandbox((box) => {
+    const receipt = box.run('ml_add', {
+      block: '还挂着',
+      text: '今晚 20:00 凌星六人桌、20:30 另一张桌，别白排。',
+    });
+    assert.match(receipt, /这条里写了时间/);
+    assert.match(receipt, /要定时提醒就用 `alarm_set`/);
+    assert.match(receipt, /「还挂着」不会自己到点提醒/);
+  });
+});
+
+test('相对时长、无时刻、非流水特殊块都不报闹钟', () => {
+  sandbox((box) => {
+    const relative = box.run('ml_add', { block: '还挂着', text: '两小时后发芽，12 小时繁殖一次。' });
+    assert.doesNotMatch(relative, /这条里写了时间/);
+
+    const plain = box.run('ml_add', { block: '还挂着', text: '备份拷到不联网盘。' });
+    assert.doesNotMatch(plain, /这条里写了时间/);
+
+    mkdirSync(join(box.folder, 'games'), { recursive: true });
+    writeFileSync(join(box.folder, 'games/狼人杀.md'), '# 狼人杀\n\n## 读局\n- 一条。\n', 'utf8');
+    const games = box.run('ml_add', {
+      file: 'games/狼人杀.md', block: '读局', text: '20:00 报到。',
+    });
+    assert.doesNotMatch(games, /alarm_set/);
+  });
+});
+
+test('ml_block 整块重写还挂着，带时刻也提示', () => {
+  sandbox((box) => {
+    const receipt = box.run('ml_block', {
+      action: 'write',
+      block: '还挂着',
+      text: '- 20:00 凌星六人桌，提前核一遍。\n- 备份拷到不联网盘。\n',
+    });
+    assert.match(receipt, /这条里写了时间/);
+    assert.match(receipt, /`alarm_set`/);
+  });
+});
+
 test('ml_check 默认只列 12 处，all 全列，file 只看一份', () => {
   sandbox((box) => {
     const rows = Array.from(
@@ -715,10 +785,29 @@ test('命中的那条给全文，不截成半句', () => {
   });
 });
 
+test('关键字写偏时：没有对得上的，也给「有点像」兜底', () => {
+  sandbox((box) => {
+    writeFileSync(join(box.folder, '超近期.md'), '# a\n\n## 11-10（周二）\n- 星邮调用报未知操作。\n', 'utf8');
+    const receipt = box.run('ml_recall', { query: '违法操作' });
+    assert.match(receipt, /没找到对得上的/);
+    assert.match(receipt, /只是有点像，别当准/);
+    assert.match(receipt, /未知操作/);
+    assert.doesNotMatch(receipt, /你想到了这些/);
+  });
+});
+
 test('一条都不像就明说「似乎之前没提到过」', () => {
   sandbox((box) => {
     assert.match(box.run('ml_recall', { query: 'zzz 完全不相干的句子' }), /似乎之前没提到过/);
   });
+});
+
+test('打牌时 ml_recall 让位给路由，不翻旧账', () => {
+  sandbox((box) => {
+    const receipt = box.run('ml_recall', { query: '生态箱同步报错' });
+    assert.match(receipt, /游戏路由给了.*别在局中翻旧账/);
+    assert.doesNotMatch(receipt, /你想到了这些/);
+  }, '超近期.md', RULES, '2026-11-10', { inGame: () => true });
 });
 
 test('ml_add 到不在规则里的文件：没有这块就开一块（游戏角色块）', () => {

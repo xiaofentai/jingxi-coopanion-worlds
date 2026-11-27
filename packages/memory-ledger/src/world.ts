@@ -26,7 +26,7 @@ import { readRuleDocs } from './audit.ts';
 import { PRIME_LIMIT, coolEnough, primeHits, primeKey, primeText, withinDailyBudget } from './prime.ts';
 import { readRecent, type RecentSay } from './recent.ts';
 import { recall } from './recall.ts';
-import { buildInjection, detectGame, parseFamilyMap, type LogItem } from './route.ts';
+import { buildInjection, detectGame, detectParlorStart, parseFamilyMap, type LogItem, type RouteEvent } from './route.ts';
 import { parseDoc } from './parse.ts';
 import { PROMPT_VARS, memoryLedgerText, textLanguage, type TextLanguage } from './text.ts';
 import { createLedgerTools } from './tools.ts';
@@ -54,6 +54,11 @@ const PRIME_TICK_MS = 30_000;
  * 「这平台不给身份」。一局只在最后送一次，不会目录档和角色档各送一遍。
  */
 const ROUTE_BLIND_TICKS = 3;
+
+/** 星邮和客厅各自有一套 gameId，去重键必须带上平台，省得认成同一局。 */
+function routeKey(state: { platform?: string; gameId: string }): string {
+  return `${state.platform ?? 'starpost'}:${state.gameId}`;
+}
 
 export interface MemoryLedgerWorldOptions {
   /** 配置段 `worlds.memory-ledger`，每次使用时读取，所以改完不用重启。 */
@@ -192,6 +197,7 @@ export class MemoryLedgerWorld implements World {
       onRecall: () => this.markRecall(),
       dueNotice: () => this.dueNotice(),
       route: () => this.routeStatus(),
+      inGame: () => this.inGame(),
     });
   }
 
@@ -206,6 +212,19 @@ export class MemoryLedgerWorld implements World {
     const range = (store as { range?: unknown } | null)?.range;
     if (typeof range !== 'function') return undefined;
     return readRecent(store, { now: Date.now() });
+  }
+
+  /** 宿主事件库最近一批；没有库就 null，路由退回 session log。 */
+  private readRouteEvents(limit = 120): RouteEvent[] | null {
+    const store = (this.host as unknown as { store?: unknown } | null)?.store;
+    const range = (store as { range?: unknown } | null)?.range;
+    if (typeof range !== 'function') return null;
+    try {
+      const out = range.call(store, { origin: 'external', limit });
+      return Array.isArray(out) ? out as RouteEvent[] : null;
+    } catch {
+      return null;
+    }
   }
 
   async start(host: WorldHost): Promise<void> {
@@ -232,8 +251,31 @@ export class MemoryLedgerWorld implements World {
     (this.primeTimer as unknown as { unref?: () => void }).unref?.();
   }
 
+  /**
+   * 正在打牌吗。路由和这次的「局中让位」共用一次解析（readSessionItems 有缓存，不重复读盘）。
+   */
+  private inGame(): boolean {
+    return detectGame(this.readSessionItems()) !== null;
+  }
+
+  /**
+   * 轮末钩子：宿主在一轮结束时立刻调，比 30 秒心跳早得多——短对话里这才是预激活该有的时机。
+   * 仍走 primeOnce 的全部闸（去重 / 强命中 / 冷却 / 预算），所以不会多推；30 秒 tick 保留兜底。
+   */
+  onTurnEnded(): void {
+    void this.primeOnce().catch(() => {
+      // 推送失败不影响这一轮收尾
+    });
+  }
+
   /** 推过的对局：同一局只推一次。 */
   private routedGames = new Set<string>();
+
+  /**
+   * 客厅「看身份」事件已经推过的局。事件没有 tableId，先记 cursor；
+   * 等 tool 回执给出 tableId，把同一局补进 `routedGames`，避免二次推。
+   */
+  private parlorEvent: { key: string; at: number } | null = null;
 
   /** 路由上一拍在干什么，出错时要能说出来。 */
   private routeNote = '';
@@ -243,7 +285,8 @@ export class MemoryLedgerWorld implements World {
    *
    * 四条边界都写这儿：
    * - 首拍只建状态：重启后日志里可能还留着上一局的牌桌，不补发；
-   * - 认局靠 `session-main.jsonl`（事件库里没有 ownRole）；
+   * - 客厅先认 `parlor.message` 的「看身份」事件（真开局，且带 role）；
+   * - 其余仍靠 `session-main.jsonl`；事件没有 tableId，tool 回执出现时只补映射；
    * - 身份没拿到时先等几拍（约 90 秒），再退到目录档；期间拿到身份就送角色档；
    * - 同一局只送一次，否则每 30 秒念一遍。
    */
@@ -257,12 +300,38 @@ export class MemoryLedgerWorld implements World {
     }
     try {
       const items = this.readSessionItems();
-      const state = detectGame(items);
+      const events = this.readRouteEvents();
+      const fromEvent = events ? detectParlorStart(events, Date.now()) : null;
+      let state = fromEvent;
+      if (fromEvent && this.parlorEvent) {
+        // 事件已经推过；tool 回执现在给出了 tableId，把同一局补进去重表，
+        // 以后即使事件过了 30 分钟，也不会因为 tableId 不同再推一次。
+        const mapped = detectGame(items);
+        if (mapped?.platform === 'parlor') {
+          this.routedGames.add(routeKey(mapped));
+          this.parlorEvent = null;
+          this.routeNote = '客厅事件已推过，tool 回执只补映射';
+          return;
+        }
+      }
+      if (!state) {
+        const logState = detectGame(items);
+        if (logState?.platform === 'parlor' && this.parlorEvent
+          && Date.now() - this.parlorEvent.at < 3 * 60_000) {
+          // 事件已经推过同一局，tool 回执只把 tableId 补进去重表，不再念一遍
+          this.routedGames.add(routeKey(logState));
+          this.parlorEvent = null;
+          this.routeNote = '客厅事件已推过，tool 回执只补映射';
+          return;
+        }
+        state = logState;
+      }
       if (!state) {
         this.routeNote = '不在对局';
         return;
       }
-      if (this.routedGames.has(state.gameId)) {
+      const key = routeKey(state);
+      if (this.routedGames.has(key)) {
         this.routeNote = '这一局已经给过';
         return;
       }
@@ -276,8 +345,8 @@ export class MemoryLedgerWorld implements World {
 
       // 身份还没拿到：先等几拍。拿到身份就走角色档；等够了还拿不到才退到目录档。
       if (!state.role) {
-        const waited = (this.routeBlind.get(state.gameId) ?? 0) + 1;
-        this.routeBlind.set(state.gameId, waited);
+        const waited = (this.routeBlind.get(key) ?? 0) + 1;
+        this.routeBlind.set(key, waited);
         if (waited < ROUTE_BLIND_TICKS) {
           this.routeNote = `${state.family} 还没发牌（等 ${waited}/${ROUTE_BLIND_TICKS} 拍）`;
           return;
@@ -293,8 +362,9 @@ export class MemoryLedgerWorld implements World {
         return;
       }
       // 送成功才记账：失败时下一拍还能重试，不会白白吃掉这一局的唯一名额
-      this.routedGames.add(state.gameId);
-      this.routeBlind.delete(state.gameId);
+      this.routedGames.add(key);
+      if (fromEvent) this.parlorEvent = { key, at: Date.now() };
+      this.routeBlind.delete(key);
       this.routeNote = state.role
         ? `推了 ${found.rel}（${state.family} / ${state.role}）`
         : `推了目录档（${state.family}，始终没拿到身份）`;
@@ -323,8 +393,8 @@ export class MemoryLedgerWorld implements World {
     const items: LogItem[] = [];
     for (const line of lines.slice(-800)) {
       try {
-        const row = JSON.parse(line) as { item?: LogItem };
-        if (row.item) items.push(row.item);
+        const row = JSON.parse(line) as { item?: LogItem; context?: { ts?: string } };
+        if (row.item) items.push({ ...row.item, ts: row.context?.ts ?? row.item.ts });
       } catch {
         // 半行/坏行跳过，不让它把整拍打断
       }
@@ -468,6 +538,11 @@ export class MemoryLedgerWorld implements World {
     // 每一步的出口都留一句话，`ml_check` 直接报它——不然「没推」到底是哪一步卡住，只能猜
     if (!this.settings.preactivate) {
       this.lastNote = '开关关着';
+      return;
+    }
+    // 打牌时让位给游戏路由：局里那两分钟要的是角色经验，不是临时想起的旧事。
+    if (this.inGame()) {
+      this.lastNote = '在对局中，让位给游戏路由';
       return;
     }
     if (this.priming || !this.host) {

@@ -49,7 +49,7 @@ const ZH = {
 
     recallOnSpeak: { title: '开口前召回', description: '打开后，前缀里会多一句「打算开口时先 ml_recall」。用来测她会不会真的在开口前查——**这不是常态，是实验**。改完要重启才生效。' },
     preactivate: { title: '预激活', description: '打开后，他刚说完一句，插件自己替她查一次，最多把两条「对得上」的旧事递到眼前（同一块两小时内不重复）。**不靠她自觉**，和上面那个实验是两条路。代价是每 30 秒看一眼事件库，偶尔会多一次注入。**改完下一拍（30 秒内）生效，不用重启。**' },
-    preactivatePerDay: { title: '预激活每天最多几次', description: '一天最多把旧事递到她眼前几次，默认 6；0 表示不限。同一块另有 2 小时冷却，所以实际频率通常比这个数还低。**按次数记账，不是按概率抽签**——概率没法预测今天被打扰几回。改完下一拍生效，不用重启。' },
+    preactivatePerDay: { title: '预激活每天最多几次', description: '一天最多把旧事递到她眼前几次，默认 20；0 表示不限。同一块另有 2 小时冷却，且只在她刚说过话、有对得上的旧事时才推——所以实际次数通常远低于这个数。打牌时让位给游戏路由，不推。**按次数记账，不是按概率抽签**。改完下一拍生效，不用重启。' },
     gameRoute: { title: '游戏路由', description: '打开后，检测到她进了一局（发牌之后），把 `games/那款游戏.md` 里的「读局」和**对应身份那一块**整段推给她一次，同一局不再重复。对应关系写在那个文件的**文件头**（`family: werewolf`、`wolf: 当狼`），所以新出一款游戏不用改插件。**走推送、不进前缀**：前缀在 session 开始时已经冻结，局中开局只能追加。改完下一拍生效，不用重启。' },
   },
   panel: {
@@ -116,7 +116,7 @@ const EN = {
 
     recallOnSpeak: { title: 'Recall before speaking', description: 'When on, the prefix gains one line telling her to run `ml_recall` before she speaks. This is an experiment, not the default. Takes a restart.' },
     preactivate: { title: 'Pre-activation', description: 'When on, the world looks up the memory itself right after he speaks and puts up to two matched old entries in front of her (the same block is not pushed twice within two hours). **This does not rely on her remembering to ask.** It checks the event store every 30 seconds. **Takes effect on the next tick — no restart.**' },
-    preactivatePerDay: { title: 'Pre-activation pushes per day', description: 'How many times a day it may put something in front of her, 6 by default; 0 means no limit. Each block also has its own two-hour cooldown, so the real rate is usually lower. **A count, not a dice roll** — a probability cannot tell you how often you will be interrupted today. Applies on the next tick, no restart.' },
+    preactivatePerDay: { title: 'Pre-activation pushes per day', description: 'How many times a day it may put something in front of her, 20 by default; 0 means no limit. Each block also has its own two-hour cooldown, and it only pushes right after he speaks and something strong matches — so the real count is usually far lower. During a game it yields to game routing. **A count, not a dice roll**. Applies on the next tick, no restart.' },
     gameRoute: { title: 'Push game notes when a round starts', description: 'When on, once she joins a round (after roles are dealt) it pushes that game\'s "读局" block plus the block for **her role**, once per round. The mapping lives in the file itself, in the header (`family: werewolf`, `wolf: 当狼`), so a new game needs no plugin change. **It is a push, not the prefix**: the prefix is frozen at session start, so a round starting mid-session can only be appended to. Applies on the next tick, no restart.' },
   },
   panel: {

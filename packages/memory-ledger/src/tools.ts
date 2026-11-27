@@ -29,7 +29,7 @@ const BACKUP_KEEP = 30;
  * 回执里说一句，免得她以为这次改动有版本可退。
  */
 const NO_COMMIT = '（这次改动没进工作区版本历史。）';
-/** 备份失败时贴到回执末尾：让她报给用户，由人决定接着写还是先查磁盘。不静默吞、也不拦写入。 */
+/** 有旧版却没留底时贴到回执末尾：让她报给用户，由人决定接着写还是先查磁盘。不静默吞、也不拦写入。 */
 const BACKUP_FAILED = '（备份失败：这份改动写进去了，但没留底。告诉用户备份失败，由他决定接着写还是先查原因。）';
 
 /** save 的返回：备份成没成。写盘本身成功才返回；写盘抛错仍向上抛。 */
@@ -82,6 +82,11 @@ export interface LedgerToolOptions {
   dueNotice?: (overdue: number) => boolean;
   /** 游戏路由的状态：开关、上一拍、推过几局。 */
   route?: () => { on: boolean; note: string; games: number };
+  /**
+   * 正在打牌吗。打牌时该给的是路由推的角色经验，不是临时翻旧账——
+   * `ml_recall` 直接回绝，让位给路由。没接就不拦（脚本 / 测试）。
+   */
+  inGame?: () => boolean;
 }
 
 type Args = Record<string, unknown>;
@@ -120,20 +125,24 @@ function save(file: string, text: string, backupDir: string): SaveOutcome {
   // 归档文件第一次写时父目录还不存在
   mkdirSync(dirname(file), { recursive: true });
   let backupOk = true;
-  try {
-    mkdirSync(backupDir, { recursive: true });
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    copyFileSync(file, join(backupDir, `${stamp}-${basename(file)}`));
-    const old = readdirSync(backupDir).sort();
-    for (const name of old.slice(0, Math.max(0, old.length - BACKUP_KEEP))) {
-      try {
-        unlinkSync(join(backupDir, name));
-      } catch {
-        // 旧备份删不掉不影响这一次写入
+  // 新建的归档文件没有旧版可留底：这不是「备份失败」，别让她报给用户。
+  // 11-25 把 11-03 搬进 archive/近期-2026-11.md 时就是这种情况，误报了一次。
+  if (existsSync(file)) {
+    try {
+      mkdirSync(backupDir, { recursive: true });
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      copyFileSync(file, join(backupDir, `${stamp}-${basename(file)}`));
+      const old = readdirSync(backupDir).sort();
+      for (const name of old.slice(0, Math.max(0, old.length - BACKUP_KEEP))) {
+        try {
+          unlinkSync(join(backupDir, name));
+        } catch {
+          // 旧备份删不掉不影响这一次写入
+        }
       }
+    } catch {
+      backupOk = false;
     }
-  } catch {
-    backupOk = false;
   }
   const tmp = `${file}.tmp-${process.pid}`;
   writeFileSync(tmp, text, 'utf8');
@@ -153,6 +162,22 @@ function docOf(folder: string, rel: string, year: number, today: string): Doc | 
 /** 不写 `file` 时写进哪一份：配置优先，空则用默认值。 */
 function todayFileOf(opts: LedgerToolOptions): string {
   return opts.todayFile().trim() || DEFAULT_TODAY_FILE;
+}
+
+/** 只认明确时刻，不把「12 小时一次」「半小时后」这种相对时长当时间点。 */
+function hasClockTime(text: string): boolean {
+  return /(?<!\d)(?:[01]?\d|2[0-3]):[0-5]\d(?!\d)/.test(text)
+    || /(?<!\d)\d{1,2}\s*点(?:半)?/.test(text);
+}
+
+/**
+ * 写进流水的无日期特殊块（「还挂着」这类）且正文里有时刻时，回执提醒她用闹钟。
+ * 只给动作，不替她算提前量；这块本身不是调度表。
+ */
+function specialTimeHint(rel: string, block: Block, text: string, opts: LedgerToolOptions): string {
+  const flow = new Set([todayFileOf(opts), opts.pastFile().trim() || DEFAULT_PAST_FILE]);
+  if (!flow.has(rel) || block.kind !== 'special' || !hasClockTime(text)) return '';
+  return `（这条里写了时间。要定时提醒就用 \`alarm_set\`；「${block.title}」不会自己到点提醒。）`;
 }
 
 /** 这份文件的条目上限：来自它自己的 catalog 规则第 4 段，没有就是 0（不管）。 */
@@ -260,6 +285,8 @@ function windowLines(docs: readonly Doc[], hits: readonly RecallHit[]): string[]
 }
 
 function recallTool(args: Args, opts: LedgerToolOptions): string {
+  // 打牌时让位给路由：局里那两分钟该看的是角色经验，临时翻旧账只会挤掉它。
+  if (opts.inGame?.()) return '（这一局该用的已经由游戏路由给了，别在局中翻旧账；打完再查。）';
   const today = opts.today();
   const docs = recallDocs(opts);
   const daysRaw = args.days;
@@ -289,7 +316,14 @@ function recallTool(args: Args, opts: LedgerToolOptions): string {
   // 告诉她「这一轮查过了」——预激活靠它避免重复投喂，统计靠它算呼出率
   opts.onRecall?.();
 
-  if (!strong.length) return '（似乎之前没提到过。）';
+  if (!strong.length) {
+    if (!weak.length) return '（似乎之前没提到过。）';
+    // 关键字写偏时（「违法操作」vs「未知操作」）可能只剩 weak。她明确查了，
+    // 就别把这点像也吞掉；但仍说清不是对得上的，别当准。
+    const maybe = weak.slice(0, 2).map((hit) =>
+      `· ${hit.handle}（${hit.file.replace(/\.md$/, '')}）${clip(hit.text, 80)}`);
+    return ['（没找到对得上的；下面只是有点像，别当准：', ...maybe, '）'].join('\n');
+  }
 
   const seen = extractDates(query, today).dates;
   const lines: string[] = [];
@@ -499,6 +533,9 @@ function add(args: Args, opts: LedgerToolOptions): string {
   // 拿刚写的那句话去比对又必然命中，于是回执永远跟着三行凑数的「可能相关」——那不是线索，是噪音。
   const writtenBlock = after.blocks.find((item) => item.entries.some((entry) => entry.text === line));
   const writtenId = writtenBlock ? shortHandle(writtenBlock) : block;
+  const hintBlock = writtenBlock ?? after.blocks.find((item) => handleOf(item) === block);
+  const timeHint = hintBlock ? specialTimeHint(rel, hintBlock, text, opts) : '';
+  if (timeHint) lines.push(timeHint);
   const related = recall(recallDocs(opts), {
     query: text,
     today,
@@ -592,7 +629,8 @@ function blockTool(args: Args, opts: LedgerToolOptions): string {
   // 整块重写：把几十条重复的教训归并成十来条。这是唯一能把块压小又不断章取义的动作
   if (action === 'write') {
     const original = findBlocks(before, handle)[0];
-    const result = rewriteBlock(before, handle, str(args, 'text'));
+    const newText = str(args, 'text');
+    const result = rewriteBlock(before, handle, newText);
     if ('error' in result) return `（${result.error}）`;
     const after = parseDoc(result.text, rel, year, today);
     if (after.blocks.length !== before.blocks.length) return '（核对不通过：块数变了，没有写盘。）';
@@ -603,6 +641,7 @@ function blockTool(args: Args, opts: LedgerToolOptions): string {
     return [
       `已重写 ${rel}「${id}」：${result.beforeChars} 字 → ${result.afterChars} 字（${original.entries.length} 条 → ${landed.entries.length} 条）`,
       sizeHint(result.afterChars),
+      specialTimeHint(rel, landed, newText, opts),
       commitLine(outcome),
     ].filter(Boolean).join('\n');
   }
@@ -1005,7 +1044,7 @@ export const LEDGER_TOOL_DECLS: ReadonlyArray<Omit<ToolDef, 'handler'>> = [
   },
   {
     name: 'ml_recall',
-    description: '回忆旧事：给一句你说的话（`query`），它找出最像的那一条，**连同它前面一条、后面两条**一起给你（▶ 标的是命中的那条）——四条够看清语境，又不用读整篇。一条都不像会明说「似乎之前没提到过」。也可以用 `entity`（人名 / 局号 / 项目名）精确找，`days` 限最近几天。句子里的日期（`11-06`、`11 月 6 日`、`昨天`）会被认出来单独走日期，不参与字面比对。',
+    description: '回忆旧事：给一句你说的话（`query`），它找出最像的那一条，**连同它前面一条、后面两条**一起给你（▶ 标的是命中的那条）——四条够看清语境，又不用读整篇。一条都不像会明说「似乎之前没提到过」；没有对得上的但有点像，会单列出来并说明别当准。也可以用 `entity`（人名 / 局号 / 项目名）精确找，`days` 限最近几天。句子里的日期（`11-06`、`11 月 6 日`、`昨天`）会被认出来单独走日期，不参与字面比对。',
     tags: ['read'],
     parameters: {
       type: 'object',

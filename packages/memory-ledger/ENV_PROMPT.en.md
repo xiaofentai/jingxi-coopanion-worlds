@@ -25,7 +25,7 @@ What follows was read from disk again when the prefix was built; it is not what 
 
 ### Writing to the memory
 
-Change these files through the tools, **not with `write_file` / `append_file` / `edit_file`**: both files usually end with a **special block** (currently "还挂着" — the name is yours to change), so an append lands inside that block.
+Change these files through the tools, **not with `write_file` / `append_file` / `edit_file`**: both files usually end with a **block that has no date** (called "还挂着" — the name may differ; any block without a date is it), so an append lands inside that block.
 
 - Add an entry → `ml_add`. When the same thing happened before, put those dates straight into the text — the date channel picks them up, no wrapper needed.
 - Write "the one line for this day" → `ml_add(..., first=true)`, which puts it at the very front of the block instead of the end. **In `超近期` / `近期`, the first line of every dated block is that day's one line — it is the line in the index, the key you look things up by**: 50 characters at most, the day's through-line (not the first line of the log, and not starting with a clock time like `13:00`).
@@ -63,4 +63,5 @@ One thing per entry, 600 characters at most. **Compress as you write**: what you
 3. **A day past its window one layer back moves whole into the flow archive**: `ml_move(from="近期.md", block="11-03")`, with no `text` and **no `to` needed** — the tool files it by that source file's own archive setting (recent goes monthly into `archive/近期-YYYY-MM.md`, resolved by that day's date across month boundaries). The archive folder is fixed to `archive/`; `to` is only required for a file with no archive configured.
    - Once moved, that day leaves the index. **What survives is only what you wrote into `大事记`.** So take one second before moving: does this day hold anything worth keeping for a long time?
 4. **Ask yourself once**: is there anything today you want in `大事记`? If so, `ml_add(file="大事记.md", text="**2026-11-19**：…")`; if not, skip it — nobody is counting.
-5. One thing at a time, then report: which blocks moved, how many characters each, and the block headings both files now have.
+5. **Go over the "还挂着" block** (the undated special block in the today file): it holds things you are still thinking about and have not settled — something you are waiting on him to fix, something you promised and have not done, an arrangement you are leaving open. Each entry carries three things: **what it is, why it is still on your mind, and who it involves**; a time in the text is context only — **use `alarm_set` for a timed reminder**; this block will not remind you by itself. It is never moved out by the window, but when you tidy you `ml_block(view)` it once: **settled → `ml_delete`; worth keeping long-term → `大事记`; still open → leave it.** This block is on the card every turn, so keep it short — above ten entries, consolidate it with `ml_block(action="write")`.
+6. One thing at a time, then report: which blocks moved, how many characters each, and the block headings both files now have.

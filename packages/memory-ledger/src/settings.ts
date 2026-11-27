@@ -126,12 +126,12 @@ export function seedSettings(cfg: MemoryLedgerConfigSection): LedgerSettings {
     folder: String(cfg.folder ?? '').trim() || 'workspace',
     recallOnSpeak: cfg.recallOnSpeak === true,
     preactivate: cfg.preactivate === true,
-    preactivatePerDay: clampInt(cfg.preactivatePerDay, 6, 0, 20),
+    preactivatePerDay: clampInt(cfg.preactivatePerDay, 20, 0, 20),
     gameRoute: cfg.gameRoute === true,
     rules,
   }, {
     folder: 'workspace', recallOnSpeak: false, preactivate: false,
-    preactivatePerDay: 6, gameRoute: false, rules: DEFAULT_RULES.map((rule) => ({ ...rule })),
+    preactivatePerDay: 20, gameRoute: false, rules: DEFAULT_RULES.map((rule) => ({ ...rule })),
   });
 }
 
